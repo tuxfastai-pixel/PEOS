@@ -25,16 +25,17 @@ export async function introspectBearerSession(
     expires_at: Date;
   }>(
     `
-      SELECT s.id AS session_id, a.person_id, s.issued_at, s.expires_at
-      FROM session.sessions s
-      JOIN identity.accounts a ON a.id = s.account_id
-      JOIN identity.persons p ON p.id = a.person_id
-      WHERE s.token_hash = $1
+      UPDATE session.sessions s
+      SET last_used_at = $2
+      FROM identity.accounts a, identity.persons p
+      WHERE s.account_id = a.id
+        AND p.id = a.person_id
+        AND s.token_hash = $1
         AND s.revoked_at IS NULL
         AND s.expires_at > $2
         AND a.status = 'ACTIVE'
         AND p.status = 'ACTIVE'
-      LIMIT 1
+      RETURNING s.id AS session_id, a.person_id, s.issued_at, s.expires_at
     `,
     [tokenHash, now],
   );
