@@ -1,5 +1,5 @@
-import { getDatabasePool } from "../../../platform/db/pool";
-import { introspectBearerSession, readBearerToken } from "../../../platform/session/service";
+import { getDatabasePool } from "../../../../platform/db/pool";
+import { introspectBearerSession, readBearerToken } from "../../../../platform/session/service";
 
 export async function POST(request: Request): Promise<Response> {
   const token = readBearerToken(request);
