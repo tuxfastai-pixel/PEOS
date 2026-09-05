@@ -12,6 +12,7 @@
     "test": "tsx --test tests/**/*.test.ts",
     "db:migrate": "tsx db/migrate.ts",
     "identity:provision": "tsx scripts/provisionCredentialIdentity.ts",
+    "teacher:bootstrap": "tsx scripts/bootstrapTeacherContext.ts",
     "validate": "npm run typecheck && npm run lint && npm test && npm run build"
   },
   "dependencies": {
