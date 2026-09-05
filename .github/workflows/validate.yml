@@ -1,0 +1,67 @@
+name: Validate
+
+on:
+  push:
+    branches:
+      - main
+      - feature/**
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: peos_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/peos_test
+      NODE_ENV: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Run database migrations
+        run: npm run db:migrate
+
+      - name: Verify migration state
+        run: |
+          test "$(psql "$DATABASE_URL" -Atc "SELECT count(*) FROM audit.schema_migrations WHERE migration_name = '0001_peos_foundation.sql'")" = "1"
+          test "$(psql "$DATABASE_URL" -Atc "SELECT to_regclass('identity.persons') IS NOT NULL")" = "t"
+          test "$(psql "$DATABASE_URL" -Atc "SELECT to_regclass('session.sessions') IS NOT NULL")" = "t"
+          test "$(psql "$DATABASE_URL" -Atc "SELECT to_regclass('consent.grants') IS NOT NULL")" = "t"
+          test "$(psql "$DATABASE_URL" -Atc "SELECT to_regclass('organisation.teacher_assignments') IS NOT NULL")" = "t"
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Production build
+        run: npm run build
