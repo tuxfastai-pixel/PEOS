@@ -16,10 +16,13 @@ export async function getLearnerContext(
       SELECT c.id AS class_id
       FROM organisation.class_memberships cm
       JOIN organisation.classes c ON c.id = cm.class_id
+      JOIN organisation.organisations o ON o.id = c.school_id
       WHERE cm.learner_person_id = $1
         AND c.school_id = $2
         AND cm.status = 'ACTIVE'
         AND c.status = 'ACTIVE'
+        AND o.organisation_type = 'SCHOOL'
+        AND o.status = 'ACTIVE'
       LIMIT 1
     `,
     [learnerPersonId, schoolId],
@@ -40,12 +43,16 @@ export async function teacherCanAccessLearner(
     `
       SELECT 1
       FROM organisation.teacher_assignments ta
+      JOIN organisation.classes c ON c.id = ta.class_id
       JOIN organisation.class_memberships cm ON cm.class_id = ta.class_id
       WHERE ta.teacher_person_id = $1
         AND cm.learner_person_id = $2
         AND ta.school_id = $3
+        AND c.school_id = $3
         AND ta.status = 'ACTIVE'
+        AND ta.starts_at <= now()
         AND cm.status = 'ACTIVE'
+        AND c.status = 'ACTIVE'
         AND (ta.ends_at IS NULL OR ta.ends_at > now())
       LIMIT 1
     `,
