@@ -1,4 +1,5 @@
 import { getLearnerContext, teacherCanAccessLearner } from "../../../../../domains/learner/context";
+import { recordAuditEvent } from "../../../../../platform/audit/service";
 import { getDatabasePool } from "../../../../../platform/db/pool";
 import { authenticateRequest } from "../../../../../platform/session/authenticate";
 
@@ -15,10 +16,31 @@ export async function GET(
 
   const pool = getDatabasePool();
   const allowed = await teacherCanAccessLearner(pool, session.personId, personId, schoolId);
-  if (!allowed) return Response.json({ error: "FORBIDDEN" }, { status: 403 });
+  if (!allowed) {
+    await recordAuditEvent(pool, {
+      actorPersonId: session.personId,
+      action: "learner_context.read",
+      resourceType: "Person",
+      resourceId: personId,
+      decision: "DENY",
+      reason: "teacher_assignment_required",
+      metadata: { schoolId },
+    });
+    return Response.json({ error: "FORBIDDEN" }, { status: 403 });
+  }
 
   const learner = await getLearnerContext(pool, personId, schoolId);
   if (!learner) return Response.json({ error: "NOT_FOUND" }, { status: 404 });
+
+  await recordAuditEvent(pool, {
+    actorPersonId: session.personId,
+    action: "learner_context.read",
+    resourceType: "Person",
+    resourceId: personId,
+    decision: "ALLOW",
+    reason: "active_teacher_assignment",
+    metadata: { schoolId },
+  });
 
   return Response.json(learner);
 }
