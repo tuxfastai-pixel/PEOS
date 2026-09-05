@@ -49,8 +49,10 @@ jobs:
       - name: Verify migration state
         run: |
           test "$(psql "$DATABASE_URL" -Atc "SELECT count(*) FROM audit.schema_migrations WHERE migration_name = '0001_peos_foundation.sql'")" = "1"
+          test "$(psql "$DATABASE_URL" -Atc "SELECT count(*) FROM audit.schema_migrations WHERE migration_name = '0002_session_usage_tracking.sql'")" = "1"
           test "$(psql "$DATABASE_URL" -Atc "SELECT to_regclass('identity.persons') IS NOT NULL")" = "t"
           test "$(psql "$DATABASE_URL" -Atc "SELECT to_regclass('session.sessions') IS NOT NULL")" = "t"
+          test "$(psql "$DATABASE_URL" -Atc "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'session' AND table_name = 'sessions' AND column_name = 'last_used_at')")" = "t"
           test "$(psql "$DATABASE_URL" -Atc "SELECT to_regclass('consent.grants') IS NOT NULL")" = "t"
           test "$(psql "$DATABASE_URL" -Atc "SELECT to_regclass('organisation.teacher_assignments') IS NOT NULL")" = "t"
 
