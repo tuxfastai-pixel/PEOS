@@ -4,12 +4,27 @@ import { readServerEnvironment } from "../../../../platform/config/env";
 import { getDatabasePool } from "../../../../platform/db/pool";
 import { readBearerToken } from "../../../../platform/session/service";
 
-function requireOidcConfiguration() {
+type RequiredOidcConfiguration = {
+  OIDC_ISSUER: string;
+  OIDC_AUDIENCE: string;
+  OIDC_JWKS_URL: string;
+  PEOS_SESSION_ISSUER: string;
+  PEOS_SESSION_TTL_SECONDS: number;
+};
+
+function requireOidcConfiguration(): RequiredOidcConfiguration {
   const env = readServerEnvironment();
   if (!env.OIDC_ISSUER || !env.OIDC_AUDIENCE || !env.OIDC_JWKS_URL) {
     throw new Error("PEOS OIDC authentication is not configured");
   }
-  return env;
+
+  return {
+    OIDC_ISSUER: env.OIDC_ISSUER,
+    OIDC_AUDIENCE: env.OIDC_AUDIENCE,
+    OIDC_JWKS_URL: env.OIDC_JWKS_URL,
+    PEOS_SESSION_ISSUER: env.PEOS_SESSION_ISSUER,
+    PEOS_SESSION_TTL_SECONDS: env.PEOS_SESSION_TTL_SECONDS,
+  };
 }
 
 export async function POST(request: Request): Promise<Response> {
