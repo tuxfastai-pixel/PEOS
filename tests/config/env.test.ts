@@ -9,5 +9,7 @@ test("blank optional database URL is normalized", () => {
 });
 
 test("invalid node environment is rejected", () => {
-  assert.throws(() => readServerEnvironment({ NODE_ENV: "invalid" }));
+  assert.throws(() =>
+    readServerEnvironment({ NODE_ENV: "invalid" } as unknown as NodeJS.ProcessEnv),
+  );
 });
