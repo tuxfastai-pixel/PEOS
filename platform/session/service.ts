@@ -50,6 +50,28 @@ export async function introspectBearerSession(
   };
 }
 
+export async function revokeBearerSession(
+  pool: Pool,
+  token: string,
+  now = new Date(),
+): Promise<{ sessionId: string; personId: string } | null> {
+  const result = await pool.query<{ session_id: string; person_id: string }>(
+    `
+      UPDATE session.sessions s
+      SET revoked_at = $2
+      FROM identity.accounts a
+      WHERE s.account_id = a.id
+        AND s.token_hash = $1
+        AND s.revoked_at IS NULL
+      RETURNING s.id AS session_id, a.person_id
+    `,
+    [hashBearerToken(token), now],
+  );
+
+  const row = result.rows[0];
+  return row ? { sessionId: row.session_id, personId: row.person_id } : null;
+}
+
 export function readBearerToken(request: Request): string | null {
   const header = request.headers.get("authorization");
   if (!header) return null;
