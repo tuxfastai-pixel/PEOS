@@ -5,6 +5,7 @@ export type TeacherContext = {
   schoolId: string;
   roleIds: string[];
   classIds: string[];
+  classes: Array<{ id:string; name:string; academicYear:number|null }>;
   active: boolean;
 };
 
@@ -13,6 +14,7 @@ export async function getTeacherContext(pool: Pool, personId: string): Promise<T
     `
       SELECT m.organisation_id AS school_id
       FROM organisation.memberships m
+      JOIN identity.persons p ON p.id=m.person_id AND p.status='ACTIVE'
       JOIN organisation.organisations o ON o.id = m.organisation_id
       WHERE m.person_id = $1
         AND m.membership_type = 'STAFF'
@@ -34,6 +36,7 @@ export async function getTeacherContext(pool: Pool, personId: string): Promise<T
     `
       SELECT ra.role_id
       FROM access.role_assignments ra
+      JOIN access.roles r ON r.id=ra.role_id AND r.code='TEACHER'
       WHERE ra.person_id = $1
         AND ra.organisation_id = $2
         AND ra.status = 'ACTIVE'
@@ -45,9 +48,9 @@ export async function getTeacherContext(pool: Pool, personId: string): Promise<T
 
   if (roles.rows.length === 0) return null;
 
-  const classes = await pool.query<{ class_id: string }>(
+  const classes = await pool.query<{ class_id: string; name:string; academic_year:number|null }>(
     `
-      SELECT ta.class_id
+      SELECT DISTINCT ta.class_id,c.name,c.academic_year
       FROM organisation.teacher_assignments ta
       JOIN organisation.classes c ON c.id = ta.class_id
       WHERE ta.teacher_person_id = $1
@@ -56,6 +59,8 @@ export async function getTeacherContext(pool: Pool, personId: string): Promise<T
         AND ta.starts_at <= now()
         AND (ta.ends_at IS NULL OR ta.ends_at > now())
         AND c.status = 'ACTIVE'
+        AND c.school_id = $2
+      ORDER BY c.academic_year DESC NULLS LAST,c.name,ta.class_id
     `,
     [personId, schoolId],
   );
@@ -65,6 +70,7 @@ export async function getTeacherContext(pool: Pool, personId: string): Promise<T
     schoolId,
     roleIds: roles.rows.map((row) => row.role_id),
     classIds: classes.rows.map((row) => row.class_id),
+    classes: classes.rows.map(row=>({id:row.class_id,name:row.name,academicYear:row.academic_year})),
     active: true,
   };
 }
