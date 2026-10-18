@@ -3,6 +3,7 @@ import { OidcIdentityVerifier } from "../../../../platform/auth/oidcVerifier";
 import { readServerEnvironment } from "../../../../platform/config/env";
 import { getDatabasePool } from "../../../../platform/db/pool";
 import { readBearerToken } from "../../../../platform/session/service";
+import { errors as joseErrors } from "jose";
 
 type RequiredOidcConfiguration = {
   OIDC_ISSUER: string;
@@ -58,7 +59,7 @@ export async function POST(request: Request): Promise<Response> {
       headers: { "cache-control": "no-store" },
     });
   } catch (error) {
-    if (error instanceof Error && /JWT|JWKS|OIDC|signature|issuer|audience/i.test(error.message)) {
+    if (error instanceof joseErrors.JOSEError || (error instanceof Error && /JWT|JWKS|OIDC|signature|issuer|audience/i.test(error.message))) {
       return Response.json({ error: "UNAUTHENTICATED" }, { status: 401 });
     }
     throw error;
