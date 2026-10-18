@@ -1,10 +1,11 @@
 import { adminRequest } from "@/domains/school-admin/http";
 import { createInvitation, invitationSchema, listInvitations, schoolIdSchema } from "@/domains/school-admin/service";
 import { getDatabasePool } from "@/platform/db/pool";
+import { invitationDelivery } from "@/domains/notifications/invitationDelivery";
 type Context = { params: Promise<{ schoolId: string }> };
 
 export async function GET(request: Request, context: Context) {
-  return adminRequest(request, async session => ({ invitations: await listInvitations(getDatabasePool(), session.personId, schoolIdSchema.parse((await context.params).schoolId)) }));
+  return adminRequest(request, async session => ({ invitations: await listInvitations(getDatabasePool(), session.personId, schoolIdSchema.parse((await context.params).schoolId)), delivery: invitationDelivery }));
 }
 export async function POST(request: Request, context: Context) {
   return adminRequest(request, async session => {
