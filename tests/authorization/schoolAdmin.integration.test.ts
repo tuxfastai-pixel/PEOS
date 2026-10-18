@@ -67,11 +67,11 @@ test("school administration and invitations remain scoped, email-bound and revoc
     const revokedAdmin = await createInvitation(pool, admin, school, { ...input, email: "revoked-admin@example.test" });
     await pool.query("INSERT INTO organisation.memberships(person_id,organisation_id,membership_type) VALUES ($1,$2,'STAFF')", [outsider, school]);
     await pool.query("INSERT INTO access.role_assignments(person_id,organisation_id,role_id) SELECT $1,$2,id FROM access.roles WHERE code='SCHOOL_ADMINISTRATOR'", [outsider, school]);
-    await replaceInvitationLink(pool, outsider, school, revokedAdmin.id);
+    const replacedAdmin = await replaceInvitationLink(pool, outsider, school, revokedAdmin.id);
     await pool.query("UPDATE access.role_assignments SET status='ENDED' WHERE person_id=$1 AND organisation_id=$2", [admin, school]);
     await assert.rejects(replaceInvitationLink(pool, admin, school, revokedAdmin.id), /SCHOOL_ADMIN_REQUIRED/);
     await assert.rejects(replaceInvitationLink(pool, outsider, school, revokedAdmin.id), /SCHOOL_ADMIN_REQUIRED/);
-    await assert.rejects(acceptInvitation(pool, recipient, "revoked-admin@example.test", revokedAdmin.token), /SCHOOL_ADMIN_REQUIRED/);
+    await assert.rejects(acceptInvitation(pool, recipient, "revoked-admin@example.test", replacedAdmin.token), /SCHOOL_ADMIN_REQUIRED/);
   } finally {
     await pool.query("DELETE FROM organisation.staff_invitations WHERE school_id=ANY($1::uuid[])", [schools]);
     await pool.query("DELETE FROM access.role_assignments WHERE person_id=ANY($1::uuid[])", [people]);
