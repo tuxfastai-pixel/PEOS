@@ -17,7 +17,7 @@ export const inviteTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
 type Database = Pick<Pool, "query">;
 type InvitationInput = z.infer<typeof invitationSchema>;
 
-async function transaction<T>(pool: Pool, action: (client: PoolClient) => Promise<T>) {
+export async function transaction<T>(pool: Pool, action: (client: PoolClient) => Promise<T>) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -54,7 +54,7 @@ export async function listAdminSchools(db: Database, personId: string) {
   return result.rows;
 }
 
-async function audit(db: Database, actor: string, action: string, schoolId: string, resourceId: string) {
+export async function audit(db: Database, actor: string, action: string, schoolId: string, resourceId: string) {
   await db.query(`INSERT INTO audit.events(actor_person_id,action,resource_type,resource_id,decision,reason,metadata)
     VALUES ($1,$2,'SCHOOL',$3,'ALLOW','school_scoped_admin_action',jsonb_build_object('schoolId',$4::text))`,
   [actor, action, resourceId, schoolId]);
