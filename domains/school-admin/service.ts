@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { z } from "zod";
 import { hashBearerToken } from "../../platform/session/service";
+import { invitationDelivery } from "../notifications/invitationDelivery";
 
 export class AdminError extends Error {
   constructor(public readonly code: string, public readonly status = 403) { super(code); }
@@ -75,7 +76,7 @@ export async function listInvitations(pool: Pool, actor: string, schoolId: strin
       accepted_at AS "acceptedAt",revoked_at AS "revokedAt" FROM organisation.staff_invitations
       WHERE school_id=$1 ORDER BY created_at DESC LIMIT 50`, [schoolId]);
     await audit(db, actor, "school.invitation.list", schoolId, schoolId);
-    return result.rows;
+    return result.rows.map(row => ({ ...row, emailStatus: invitationDelivery.status }));
   });
 }
 
@@ -91,7 +92,29 @@ export async function createInvitation(pool: Pool, actor: string, schoolId: stri
       VALUES ($1,$2,$3,$4,$5,now()+interval '7 days') RETURNING id,expires_at AS "expiresAt"`,
     [schoolId, input.email, input.roleCode, hashBearerToken(token), actor]);
     await audit(db, actor, "school.invitation.create", schoolId, result.rows[0].id);
-    return { ...result.rows[0], token };
+    return { ...result.rows[0], token, delivery: invitationDelivery };
+  });
+}
+
+export async function replaceInvitationLink(pool: Pool, actor: string, schoolId: string, invitationId: string) {
+  return transaction(pool, async db => {
+    await assertSchoolAdmin(db, actor, schoolId);
+    const existing = await db.query(`SELECT created_by FROM organisation.staff_invitations
+      WHERE id=$1 AND school_id=$2 AND accepted_at IS NULL AND revoked_at IS NULL
+        AND expires_at>now() FOR UPDATE`, [invitationId, schoolId]);
+    if (!existing.rows.length) throw new AdminError("INVITATION_UNAVAILABLE", 410);
+    await assertSchoolAdmin(db, existing.rows[0].created_by, schoolId);
+    const token = randomBytes(32).toString("base64url");
+    // Atomic rotation serializes against acceptance and revocation. Keep the original
+    // expiry and issuing administrator; replacement must not revive an unusable invite.
+    const result = await db.query(`UPDATE organisation.staff_invitations SET token_hash=$3
+      WHERE id=$1 AND school_id=$2 AND accepted_at IS NULL
+        AND revoked_at IS NULL AND expires_at>now()
+      RETURNING id,email,role_code AS "roleCode",expires_at AS "expiresAt"`,
+    [invitationId, schoolId, hashBearerToken(token)]);
+    if (!result.rows.length) throw new AdminError("INVITATION_UNAVAILABLE", 410);
+    await audit(db, actor, "school.invitation.replace_link", schoolId, invitationId);
+    return { ...result.rows[0], token, delivery: invitationDelivery };
   });
 }
 
