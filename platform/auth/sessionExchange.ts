@@ -4,6 +4,7 @@ import type { Pool } from "pg";
 import { recordAuditEvent } from "../audit/service";
 import { hashBearerToken, type IntrospectedSession } from "../session/service";
 import type { ExternalIdentityVerifier } from "./oidcVerifier";
+import { provisionVerifiedIdentity } from "./selfSignup";
 
 export type SessionExchangeResult = {
   accessToken: string;
@@ -18,6 +19,7 @@ export async function exchangeExternalIdentity(
   sessionIssuer: string,
   ttlSeconds: number,
   now = new Date(),
+  allowSelfSignup = false,
 ): Promise<SessionExchangeResult | null> {
   const identity = await verifier.verify(externalToken);
   const resolved = await pool.query<{
@@ -38,7 +40,9 @@ export async function exchangeExternalIdentity(
     [identity.provider, identity.subject],
   );
 
-  const row = resolved.rows[0];
+  const row = resolved.rows[0] ?? (allowSelfSignup && identity.selfSignupAllowed
+    ? await provisionVerifiedIdentity(pool, identity.provider, identity.subject)
+    : null);
   if (!row) {
     await recordAuditEvent(pool, {
       action: "SESSION_EXCHANGE",

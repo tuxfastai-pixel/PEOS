@@ -10,6 +10,7 @@ type RequiredOidcConfiguration = {
   OIDC_JWKS_URL: string;
   PEOS_SESSION_ISSUER: string;
   PEOS_SESSION_TTL_SECONDS: number;
+  PEOS_ALLOW_SELF_SIGNUP: "true" | "false";
 };
 
 function requireOidcConfiguration(): RequiredOidcConfiguration {
@@ -24,6 +25,7 @@ function requireOidcConfiguration(): RequiredOidcConfiguration {
     OIDC_JWKS_URL: env.OIDC_JWKS_URL,
     PEOS_SESSION_ISSUER: env.PEOS_SESSION_ISSUER,
     PEOS_SESSION_TTL_SECONDS: env.PEOS_SESSION_TTL_SECONDS,
+    PEOS_ALLOW_SELF_SIGNUP: env.PEOS_ALLOW_SELF_SIGNUP,
   };
 }
 
@@ -43,6 +45,8 @@ export async function POST(request: Request): Promise<Response> {
       externalToken,
       env.PEOS_SESSION_ISSUER,
       env.PEOS_SESSION_TTL_SECONDS,
+      new Date(),
+      env.PEOS_ALLOW_SELF_SIGNUP === "true",
     );
 
     if (!result) {

@@ -3,6 +3,7 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 export type VerifiedExternalIdentity = {
   provider: string;
   subject: string;
+  selfSignupAllowed?: boolean;
 };
 
 export interface ExternalIdentityVerifier {
@@ -24,6 +25,7 @@ export class OidcIdentityVerifier implements ExternalIdentityVerifier {
     const { payload } = await jwtVerify(token, this.jwks, {
       issuer: this.issuer,
       audience: this.audience,
+      requiredClaims: ["sub", "exp", "iat"],
     });
 
     if (!payload.sub) {
@@ -33,6 +35,9 @@ export class OidcIdentityVerifier implements ExternalIdentityVerifier {
     return {
       provider: this.issuer,
       subject: payload.sub,
+      // Supabase's signed claims distinguish authenticated people from anonymous sessions.
+      // User-editable profile metadata is never used to grant authority.
+      selfSignupAllowed: payload.role === "authenticated" && payload.is_anonymous === false,
     };
   }
 }

@@ -11,6 +11,7 @@ const serverEnvSchema = z.object({
   OIDC_ISSUER: optionalNonBlank(z.string().url()),
   OIDC_AUDIENCE: optionalNonBlank(z.string().min(1)),
   OIDC_JWKS_URL: optionalNonBlank(z.string().url()),
+  PEOS_ALLOW_SELF_SIGNUP: z.enum(["true", "false"]).default("false"),
 });
 
 export type ServerEnvironment = z.infer<typeof serverEnvSchema>;
