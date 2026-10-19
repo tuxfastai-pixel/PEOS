@@ -40,6 +40,22 @@ test("class assignment is scoped, current, idempotent and immediately revocable"
     await pool.query("UPDATE organisation.memberships SET starts_at=now()+interval '1 day' WHERE person_id=$1",[teacher]);
     await assert.rejects(assignClassTeacher(pool,admin,school,classroom.id,teacher),/ACTIVE_SCHOOL_TEACHER_REQUIRED/);
     await pool.query("UPDATE organisation.memberships SET starts_at=now()-interval '1 minute' WHERE person_id=$1",[teacher]);
+    // Force a waiter whose transaction starts before the winning assignment is inserted.
+    // Its stale transaction timestamp must not cause a duplicate after the lock releases.
+    const locker=await pool.connect();
+    try{
+      await locker.query("BEGIN");
+      await locker.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[JSON.stringify(["assignment",school,classroom.id,teacher]).toLowerCase()]);
+      let signal!:()=>void;const reached=new Promise<void>(resolve=>{signal=resolve;});
+      const waitingPool={connect:async()=>{const waiting=await pool.connect();return {
+        query:(sql:string,values?:unknown[])=>{if(sql.includes("pg_advisory_xact_lock"))signal();return waiting.query(sql,values);},
+        release:()=>waiting.release(),
+      };}} as unknown as Pool;
+      const attempt=assignClassTeacher(waitingPool,admin,school,classroom.id,teacher);
+      await Promise.race([reached,attempt.then(()=>{throw new Error("Expected assignment to wait for lock");})]);
+      await locker.query("INSERT INTO organisation.teacher_assignments(school_id,class_id,teacher_person_id,starts_at) VALUES ($1,$2,$3,clock_timestamp())",[school,classroom.id,teacher]);
+      await locker.query("COMMIT");await attempt;
+    }finally{await locker.query("ROLLBACK");locker.release();}
     await Promise.all([1,2].map(()=>assignClassTeacher(pool,admin,school,classroom.id,teacher)));
     const count=await pool.query("SELECT count(*) FROM organisation.teacher_assignments WHERE teacher_person_id=$1 AND status='ACTIVE'",[teacher]);
     assert.equal(count.rows[0].count,"1");

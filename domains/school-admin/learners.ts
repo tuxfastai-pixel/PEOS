@@ -62,7 +62,7 @@ export async function enrolLearners(pool:Pool,actor:string,schoolId:string,class
         JOIN identity.person_names n ON n.person_id=p.id WHERE r.school_id=$1 AND r.admission_number=$2 FOR SHARE OF r,p,n`,[schoolId,row.admissionNumber]);
       let personId:string|undefined=existing.rows[0]?.id;let created=false;
       const member=personId?await db.query(`SELECT id FROM organisation.memberships WHERE person_id=$1 AND organisation_id=$2 AND membership_type='LEARNER'
-        AND status='ACTIVE' AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now()) FOR SHARE`,[personId,schoolId]):null;
+        AND status='ACTIVE' AND starts_at<=clock_timestamp() AND (ends_at IS NULL OR ends_at>clock_timestamp()) FOR SHARE`,[personId,schoolId]):null;
       const old=existing.rows[0];
       if(old&&(old.status!=="ACTIVE"||old.person_status!=="ACTIVE"||!member?.rows.length||old.given_name.toLowerCase()!==row.givenName.toLowerCase()||old.family_name.toLowerCase()!==row.familyName.toLowerCase())){
         results.push({admissionNumber:row.admissionNumber,status:"CONFLICT"});
