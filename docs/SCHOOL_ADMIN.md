@@ -23,3 +23,13 @@ Creation and replacement return delivery={mode:MANUAL,emailEnabled:false,status:
 POST /v1/admin/schools/[schoolId]/invitations/[invitationId] rotates a pending token under a row lock and audits school.invitation.replace_link. The current administrator and original issuer must both still have school authority. The old token stops working; expiry, issuer, email and role are preserved. Accepted, expired or revoked invitations cannot be replaced. The new token is shown once and stored only as a hash. No new migration is needed.
 
 Future email activation requires provider/domain configuration, persisted attempts, idempotency, throttling, signed delivery-event verification, secure queue/secret lifecycle and failure tests. SUBMITTED is provider acceptance, not proof of delivery. Installing a provider must not automatically send existing pending invitations.
+
+## Bulk invitations
+
+POST /v1/admin/schools/[schoolId]/invitations/bulk accepts a strict recipients array of 1–50 normalized email/role pairs. Only TEACHER and SCHOOL_ADMINISTRATOR are accepted; duplicate emails reject the entire payload before writes. Four workers create independently audited invitations, rechecking authority in every recipient transaction. Results preserve input order and include recipient email and role plus CREATED (one-time token, id, expiry, NOT_SENT), SKIPPED (pending invitation or current school member), or FAILED (authority ended or service unavailable). Delivery remains MANUAL/disabled; no outbound email is attempted.
+
+Current staff detection uses an accepted invitation at the same email joined to an active person and current STAFF membership. This avoids changing existing staff roles in bulk. It is deliberately not a general email identity resolver: bootstrapped staff or staff using an unrecorded email may not be detected, and email matching never grants authority. Single invitation behavior is unchanged.
+
+A per-school/email transaction advisory lock prevents concurrent pending duplicates and makes repeated batches skip existing pending rows. Unknown service/commit outcomes or lost responses require checking the latest Invitations list and replacing links whose one-time tokens were lost. There is no automatic retry. Audit denials contain bounded reasons, not recipient emails/tokens. An audit outage can make the batch response unavailable after other recipients committed. Listing returns at most the latest 200 invitations. No migration is needed.
+
+SpaceCase handles local paste/CSV review, exclusions, privilege acknowledgement, per-person copy/draft actions and optional private CSV export. It does not send the batch. Future onboarding can reuse that interface. Integration coverage uses isolated CI fixtures, never production invitees.

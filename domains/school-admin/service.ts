@@ -7,7 +7,7 @@ import { invitationDelivery } from "../notifications/invitationDelivery";
 export class AdminError extends Error {
   constructor(public readonly code: string, public readonly status = 403) { super(code); }
 }
-export const schoolIdSchema = z.string().uuid();
+export const schoolIdSchema = z.string().uuid().transform(v=>v.toLowerCase());
 export const schoolNameSchema = z.object({ displayName: z.string().trim().min(2).max(120) }).strict();
 export const invitationSchema = z.object({
   email: z.string().trim().email().max(254).transform(v => v.toLowerCase()),
@@ -74,16 +74,25 @@ export async function listInvitations(pool: Pool, actor: string, schoolId: strin
     await assertSchoolAdmin(db, actor, schoolId);
     const result = await db.query(`SELECT id,email,role_code AS "roleCode",expires_at AS "expiresAt",
       accepted_at AS "acceptedAt",revoked_at AS "revokedAt" FROM organisation.staff_invitations
-      WHERE school_id=$1 ORDER BY created_at DESC LIMIT 50`, [schoolId]);
+      WHERE school_id=$1 ORDER BY created_at DESC LIMIT 200`, [schoolId]);
     await audit(db, actor, "school.invitation.list", schoolId, schoolId);
     return result.rows.map(row => ({ ...row, emailStatus: invitationDelivery.status }));
   });
 }
 
-export async function createInvitation(pool: Pool, actor: string, schoolId: string, input: InvitationInput) {
+export async function createInvitation(pool: Pool, actor: string, schoolId: string, input: InvitationInput, options: {skipExistingMembers?:boolean} = {}) {
   return transaction(pool, async db => {
     await assertSchoolAdmin(db, actor, schoolId);
-    await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [JSON.stringify([schoolId, input.email])]);
+    await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [JSON.stringify([schoolId.toLowerCase(), input.email])]);
+    if(options.skipExistingMembers){
+      const member=await db.query(`SELECT m.id FROM organisation.staff_invitations i
+        JOIN organisation.memberships m ON m.person_id=i.accepted_by AND m.organisation_id=i.school_id
+        JOIN identity.persons p ON p.id=m.person_id
+        WHERE i.school_id=$1 AND i.email=$2 AND i.accepted_at IS NOT NULL
+          AND m.membership_type='STAFF' AND m.status='ACTIVE' AND p.status='ACTIVE'
+          AND m.starts_at<=now() AND (m.ends_at IS NULL OR m.ends_at>now()) LIMIT 1`,[schoolId,input.email]);
+      if(member.rows.length)throw new AdminError("ALREADY_SCHOOL_MEMBER",409);
+    }
     const pending = await db.query(`SELECT id FROM organisation.staff_invitations WHERE school_id=$1 AND email=$2
       AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at>now()`, [schoolId, input.email]);
     if (pending.rows.length) throw new AdminError("INVITATION_ALREADY_PENDING", 409);
