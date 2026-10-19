@@ -60,8 +60,10 @@ export async function assignClassTeacher(pool: Pool, actor: string, schoolId: st
         AND ra.status='ACTIVE' AND ra.starts_at<=now() AND (ra.ends_at IS NULL OR ra.ends_at>now()) FOR SHARE OF p,m,ra`,[teacherPersonId,schoolId]);
     if (!teacher.rows.length) throw new AdminError("ACTIVE_SCHOOL_TEACHER_REQUIRED");
     await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[JSON.stringify(["assignment",schoolId,classId,teacherPersonId]).toLowerCase()]);
+    // The lock may have waited for a transaction that started later than this one.
+    // PostgreSQL now() is fixed at transaction start; use the current clock here.
     const existing=await db.query(`SELECT id FROM organisation.teacher_assignments WHERE school_id=$1 AND class_id=$2
-      AND teacher_person_id=$3 AND status='ACTIVE' AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now())`,[schoolId,classId,teacherPersonId]);
+      AND teacher_person_id=$3 AND status='ACTIVE' AND starts_at<=clock_timestamp() AND (ends_at IS NULL OR ends_at>clock_timestamp())`,[schoolId,classId,teacherPersonId]);
     if (!existing.rows.length) await db.query(`INSERT INTO organisation.teacher_assignments(school_id,class_id,teacher_person_id)
       VALUES ($1,$2,$3)`,[schoolId,classId,teacherPersonId]);
     await audit(db,actor,"school.class.assign_teacher",schoolId,classId);
