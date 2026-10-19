@@ -29,7 +29,7 @@ export async function GET(
     return Response.json({ error: "FORBIDDEN" }, { status: 403 });
   }
 
-  const learner = await getLearnerContext(pool, personId, schoolId);
+  const learner = await getLearnerContext(pool, personId, schoolId, session.personId);
   if (!learner) return Response.json({ error: "NOT_FOUND" }, { status: 404 });
 
   await recordAuditEvent(pool, {

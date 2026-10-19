@@ -48,6 +48,7 @@ test("class assignment is scoped, current, idempotent and immediately revocable"
     await pool.query("INSERT INTO organisation.teacher_assignments(school_id,class_id,teacher_person_id) VALUES ($1,$2,$3)",[school,otherClass.id,teacher]);
     assert.deepEqual((await getTeacherContext(pool,teacher))?.classIds,[classroom.id]);
     const directory=await classDirectory(pool,admin,school);assert.equal(directory.teachers.length,1);assert.equal(directory.assignments.length,1);
+    await pool.query("INSERT INTO organisation.memberships(person_id,organisation_id,membership_type) VALUES ($1,$2,'LEARNER')",[learner,school]);
     await pool.query("INSERT INTO organisation.class_memberships(class_id,learner_person_id) VALUES ($1,$2)",[classroom.id,learner]);
     assert.equal(await teacherCanAccessLearner(pool,teacher,learner,school),true);
     await assert.rejects(removeClassTeacher(pool,outsider,other,classroom.id,teacher),/ASSIGNMENT_UNAVAILABLE/);
