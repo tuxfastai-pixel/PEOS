@@ -5,7 +5,7 @@ import { AdminError } from "./service";
 import { recordAuditEvent } from "../../platform/audit/service";
 import { getDatabasePool } from "../../platform/db/pool";
 
-export async function adminRequest(request: Request, action: (session: IntrospectedSession) => Promise<unknown>, status = 200) {
+export async function adminRequest(request: Request, action: (session: IntrospectedSession) => Promise<unknown>, status = 200, auditKind = {action:"school_admin.request",resourceType:"SchoolAdministration"}) {
   let actorPersonId: string | undefined;
   try {
     const session = await authenticateRequest(request);
@@ -16,7 +16,7 @@ export async function adminRequest(request: Request, action: (session: Introspec
     if (error instanceof AdminError) {
       if (actorPersonId) {
         try {
-          await recordAuditEvent(getDatabasePool(), { actorPersonId, action: "school_admin.request", resourceType: "SchoolAdministration",
+          await recordAuditEvent(getDatabasePool(), { actorPersonId, action: auditKind.action, resourceType: auditKind.resourceType,
             resourceId: new URL(request.url).pathname, decision: "DENY", reason: error.code });
         } catch { return Response.json({ error: "AUDIT_UNAVAILABLE" }, { status: 503 }); }
       }

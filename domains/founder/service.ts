@@ -23,6 +23,7 @@ export async function supportContext(pool:Pool,actor:string){
  WHERE m.person_id=$1 AND o.organisation_type='SCHOOL' AND o.status='ACTIVE' AND m.membership_type='STAFF' AND m.status='ACTIVE'
  AND m.starts_at<=now() AND (m.ends_at IS NULL OR m.ends_at>now()) AND ra.status='ACTIVE' AND ra.starts_at<=now() AND (ra.ends_at IS NULL OR ra.ends_at>now())
  AND r.code IN ('TEACHER','PRINCIPAL','SCHOOL_ADMINISTRATOR') ORDER BY "displayName",o.id`,[actor]);
+ await db.query(`INSERT INTO audit.events(actor_person_id,action,resource_type,resource_id,decision,reason,metadata) VALUES($1,'support.context.read','SPACECASE_AUTHORITY',$1,'ALLOW','current_person_and_role_checks',$2::jsonb)`,[actor,JSON.stringify({founder:founder.rows.length>0,schoolCount:schools.rows.length})]);
  return {personId:actor,founder:founder.rows.length>0,schools:schools.rows};
  });
 }
@@ -46,7 +47,9 @@ export async function founderSchool(pool:Pool,actor:string,schoolId:string){
  const result=await db.query(summary+" WHERE o.organisation_type='SCHOOL' AND o.id=$1",[schoolId]);
  if(!result.rows[0])throw new AdminError("SCHOOL_UNAVAILABLE",404);
  const classes=await db.query(`SELECT c.id,c.name,c.academic_year AS "academicYear",
- (SELECT count(DISTINCT ta.teacher_person_id)::int FROM organisation.teacher_assignments ta JOIN identity.persons p ON p.id=ta.teacher_person_id WHERE ta.class_id=c.id AND ta.school_id=c.school_id AND ta.status='ACTIVE' AND p.status='ACTIVE' AND ta.starts_at<=now() AND (ta.ends_at IS NULL OR ta.ends_at>now())) AS "assignedTeachers"
+ (SELECT count(DISTINCT ta.teacher_person_id)::int FROM organisation.teacher_assignments ta JOIN identity.persons p ON p.id=ta.teacher_person_id WHERE ta.class_id=c.id AND ta.school_id=c.school_id AND ta.status='ACTIVE' AND p.status='ACTIVE' AND ta.starts_at<=now() AND (ta.ends_at IS NULL OR ta.ends_at>now())
+ AND EXISTS(SELECT 1 FROM organisation.memberships m WHERE m.person_id=p.id AND m.organisation_id=c.school_id AND m.membership_type='STAFF' AND m.status='ACTIVE' AND m.starts_at<=now() AND (m.ends_at IS NULL OR m.ends_at>now()))
+ AND EXISTS(SELECT 1 FROM access.role_assignments ra JOIN access.roles r ON r.id=ra.role_id WHERE ra.person_id=p.id AND ra.organisation_id=c.school_id AND r.code='TEACHER' AND ra.status='ACTIVE' AND ra.starts_at<=now() AND (ra.ends_at IS NULL OR ra.ends_at>now()))) AS "assignedTeachers"
  FROM organisation.classes c WHERE c.school_id=$1 AND c.status='ACTIVE' ORDER BY lower(c.name),c.id LIMIT 200`,[schoolId]);
  await audit(db,actor,"founder.school.read",schoolId);
  return {school:result.rows[0],classes:classes.rows,classesTruncated:result.rows[0].classCount>classes.rows.length,asOf:new Date().toISOString()};
