@@ -1,6 +1,6 @@
 # School family invitation contract v1
 
-Status: implemented for review; no production migration or activation.
+Status: invitation schema and initial workflow released. Owner history, withdrawal and queue filters are the next additive API revision.
 
 PEOS owns this school-scoped invitation and school-confirmed contact relationship. SpaceCase must consume the API, never access these tables. This is not a declaration of global/legal guardianship. No new staff role, school membership, learning-record access, Atlas permission or consent grant is created.
 
@@ -16,3 +16,11 @@ Input is strict and bounded. Parent acknowledgement is explicit. Tokens never go
 No SpaceCase draft, home address, photo or medical note is transferred by this contract. Future draft submission must be separate, consented, revision-bound and narrowly scoped, with medical information separately acknowledged. Private family drafts remain preparatory data.
 
 Security/release: RLS enabled and PUBLIC privileges revoked on both tables. Existing server role strategy is unchanged; no browser table access or new credentials. Migration must be tested on an isolated production-schema branch and privilege-checked before explicitly approved production activation. CI must pass migration, unit/integration tests, typecheck/lint/build. Product UI/adapters must not advertise success until this service release is verified. Reconnection/revocation tests are required before exposing any future parent learning-record surface.
+
+## Owner connection history and withdrawal
+
+GET /v1/family/connections accepts offset only, derives ownership from the authenticated active PEOS person, and lists only that person’s claimed invitations. It exposes school display name, proposed relationship, current status, dates and request ID; no learner identity, email, token, school ID, private family data or record permission. Current school/learner state is checked before displaying pending/confirmed status. Pending requests additionally require a current issuer. Every response explicitly reports grantsLearnerAccess:false.
+
+POST /v1/family/connections/:invitationId/withdraw requires acknowledgement:true and a matching claimed owner. Under the same invitation-row lock as school review, it revokes that invitation’s active relationship and marks the invitation revoked. Wrong owner and unavailable request return the same 404. It does not modify enrolment, school records or private intake. Owner withdrawal remains possible when the school or issuer becomes inactive. Audits contain IDs and fixed reasons only. Both routes are private/no-store. No new schema or credential is needed.
+
+The administrator list additionally accepts view=ALL|PENDING_REVIEW|AWAITING_PARENT|CONFIRMED; ALL remains the API default. Filtering is inside the school-authorized SQL query before pagination. Expired pending items are excluded from actionable filtered queues.
