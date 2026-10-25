@@ -28,7 +28,7 @@ export async function createFamilyInvitation(pool:Pool,actor:string,school:strin
  await audit(db,actor,'school.family_invitation.create',school,r.rows[0].id);return {...r.rows[0],token,emailStatus:'NOT_SENT' as const};
 });}
 export async function listFamilyInvitations(pool:Pool,actor:string,school:string){return transaction(pool,async db=>{
- await assertSchoolAdmin(db,actor,school);const r=await db.query(`SELECT id,learner_person_id AS "learnerPersonId",email,relationship,
+ await assertSchoolAdmin(db,actor,school);const r=await db.query(`SELECT id,learner_person_id AS "learnerPersonId",(SELECT admission_number FROM organisation.learner_registrations r WHERE r.school_id=organisation.family_invitations.school_id AND r.learner_person_id=organisation.family_invitations.learner_person_id) AS "admissionNumber",email,relationship,
  CASE WHEN status IN ('ISSUED','CLAIMED') AND expires_at<=clock_timestamp() THEN 'EXPIRED' ELSE status END AS status,
  expires_at AS "expiresAt",claimed_at AS "claimedAt",reviewed_at AS "reviewedAt" FROM organisation.family_invitations WHERE school_id=$1 ORDER BY created_at DESC,id LIMIT 100`,[school]);
  await audit(db,actor,'school.family_invitation.list',school,school);return {invitations:r.rows};
