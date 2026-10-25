@@ -4,6 +4,7 @@ import {z} from 'zod';
 import {AdminError,assertSchoolAdmin,audit,transaction,inviteTokenSchema} from '../school-admin/service';
 import {hashBearerToken} from '../../platform/session/service';
 export const familyInvitationInput=z.object({learnerPersonId:z.string().uuid().transform(v=>v.toLowerCase()),email:z.string().trim().email().max(254).transform(v=>v.toLowerCase()),relationship:z.enum(['PARENT','GUARDIAN','CAREGIVER'])}).strict();
+export const familyListQuery=z.object({offset:z.coerce.number().int().min(0).max(1000000).default(0)}).strict();
 export const familyClaimInput=z.object({token:inviteTokenSchema,acknowledgement:z.literal(true)}).strict();
 export const familyReviewInput=z.discriminatedUnion('decision',[
  z.object({decision:z.literal('CONFIRM'),verifiedBySchool:z.literal(true)}).strict(),
@@ -27,11 +28,11 @@ export async function createFamilyInvitation(pool:Pool,actor:string,school:strin
  VALUES($1,$2,$3,$4,$5,$6) RETURNING id,expires_at AS "expiresAt"`,[school,input.learnerPersonId,input.email,input.relationship,hashBearerToken(token),actor]);
  await audit(db,actor,'school.family_invitation.create',school,r.rows[0].id);return {...r.rows[0],token,emailStatus:'NOT_SENT' as const};
 });}
-export async function listFamilyInvitations(pool:Pool,actor:string,school:string){return transaction(pool,async db=>{
+export async function listFamilyInvitations(pool:Pool,actor:string,school:string,offset=0){return transaction(pool,async db=>{
  await assertSchoolAdmin(db,actor,school);const r=await db.query(`SELECT id,learner_person_id AS "learnerPersonId",(SELECT admission_number FROM organisation.learner_registrations r WHERE r.school_id=organisation.family_invitations.school_id AND r.learner_person_id=organisation.family_invitations.learner_person_id) AS "admissionNumber",email,relationship,
  CASE WHEN status IN ('ISSUED','CLAIMED') AND expires_at<=clock_timestamp() THEN 'EXPIRED' ELSE status END AS status,
- expires_at AS "expiresAt",claimed_at AS "claimedAt",reviewed_at AS "reviewedAt" FROM organisation.family_invitations WHERE school_id=$1 ORDER BY created_at DESC,id LIMIT 100`,[school]);
- await audit(db,actor,'school.family_invitation.list',school,school);return {invitations:r.rows};
+ expires_at AS "expiresAt",claimed_at AS "claimedAt",reviewed_at AS "reviewedAt" FROM organisation.family_invitations WHERE school_id=$1 ORDER BY created_at DESC,id LIMIT 101 OFFSET $2`,[school,offset]);
+ await audit(db,actor,'school.family_invitation.list',school,school);return {invitations:r.rows.slice(0,100),nextOffset:r.rows.length>100?offset+100:null};
 });}
 export async function claimFamilyInvitation(pool:Pool,person:string,verifiedEmail:string,value:unknown){const {token}=familyClaimInput.parse(value);return transaction(pool,async db=>{
  const r=await db.query(`SELECT i.*,o.display_name FROM organisation.family_invitations i JOIN organisation.organisations o ON o.id=i.school_id
@@ -53,7 +54,7 @@ export async function reviewFamilyInvitation(pool:Pool,actor:string,school:strin
  }else{
  if(i.status!=='CLAIMED'||new Date(i.expires_at).getTime()<=Date.now())throw new AdminError('INVITATION_UNAVAILABLE',410);
  await assertSchoolAdmin(db,i.created_by,school);await learner(db,school,i.learner_person_id);await activePerson(db,i.claimed_by);
- if(actor===i.claimed_by)throw new AdminError('INDEPENDENT_REVIEW_REQUIRED');
+ if(actor===i.claimed_by||(input.decision==='CONFIRM'&&actor===i.created_by))throw new AdminError('INDEPENDENT_REVIEW_REQUIRED');
  if(input.decision==='CONFIRM'){
  await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[JSON.stringify(['family-link',school,i.learner_person_id,i.claimed_by])]);
  const existing=await db.query("SELECT id FROM identity.school_family_relationships WHERE school_id=$1 AND learner_person_id=$2 AND adult_person_id=$3 AND status='ACTIVE'",[school,i.learner_person_id,i.claimed_by]);
