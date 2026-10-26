@@ -17,6 +17,11 @@ test("school administration and invitations remain scoped, email-bound and revoc
     await pool.query("INSERT INTO access.role_assignments(person_id,organisation_id,role_id) SELECT $1,$2,id FROM access.roles WHERE code='SCHOOL_ADMINISTRATOR'", [admin, school]);
     await pool.query("INSERT INTO access.role_assignments(person_id,organisation_id,role_id) SELECT $1,$2,id FROM access.roles WHERE code='SCHOOL_ADMINISTRATOR'", [outsider, otherSchool]);
     assert.equal((await listAdminSchools(pool, admin)).length, 1);
+    assert.equal((await listAdminSchools(pool, admin))[0].principal,false);
+    await pool.query("INSERT INTO access.role_assignments(person_id,organisation_id,role_id) SELECT $1,$2,id FROM access.roles WHERE code='PRINCIPAL'",[admin,school]);
+    assert.equal((await listAdminSchools(pool, admin))[0].principal,true);
+    await pool.query("UPDATE access.role_assignments SET status='ENDED' WHERE person_id=$1 AND organisation_id=$2 AND role_id=(SELECT id FROM access.roles WHERE code='PRINCIPAL')",[admin,school]);
+    assert.equal((await listAdminSchools(pool, admin))[0].principal,false);
     await assert.rejects(assertSchoolAdmin(pool, recipient, school), /SCHOOL_ADMIN_REQUIRED/);
     await assert.rejects(renameSchool(pool, outsider, school, "Unauthorized rename"), /SCHOOL_ADMIN_REQUIRED/);
     assert.equal((await renameSchool(pool, admin, school, "Renamed pilot")).displayName, "Renamed pilot");

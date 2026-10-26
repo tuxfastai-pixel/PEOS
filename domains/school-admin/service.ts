@@ -43,7 +43,10 @@ export async function assertSchoolAdmin(db: Database, personId: string, schoolId
 }
 
 export async function listAdminSchools(db: Database, personId: string) {
-  const result = await db.query(`SELECT DISTINCT o.id, o.display_name AS "displayName"
+  const result = await db.query(`SELECT DISTINCT o.id, o.display_name AS "displayName",
+      EXISTS(SELECT 1 FROM access.role_assignments pr JOIN access.roles role ON role.id=pr.role_id
+        WHERE pr.person_id=$1 AND pr.organisation_id=o.id AND role.code='PRINCIPAL' AND pr.status='ACTIVE'
+          AND pr.starts_at<=now() AND (pr.ends_at IS NULL OR pr.ends_at>now())) AS principal
     FROM organisation.organisations o JOIN organisation.memberships m ON m.organisation_id=o.id
     JOIN access.role_assignments ra ON ra.organisation_id=o.id AND ra.person_id=m.person_id
     JOIN access.roles r ON r.id=ra.role_id JOIN identity.persons p ON p.id=m.person_id
