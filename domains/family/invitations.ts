@@ -4,7 +4,7 @@ import {z} from 'zod';
 import {AdminError,assertSchoolAdmin,audit,transaction,inviteTokenSchema} from '../school-admin/service';
 import {hashBearerToken} from '../../platform/session/service';
 export const familyInvitationInput=z.object({learnerPersonId:z.string().uuid().transform(v=>v.toLowerCase()),email:z.string().trim().email().max(254).transform(v=>v.toLowerCase()),relationship:z.enum(['PARENT','GUARDIAN','CAREGIVER'])}).strict();
-export const familyListQuery=z.object({offset:z.coerce.number().int().min(0).max(1000000).default(0),view:z.enum(['ALL','PENDING_REVIEW','AWAITING_PARENT','CONFIRMED']).default('ALL')}).strict();
+export const familyListQuery=z.object({offset:z.coerce.number().int().min(0).max(1000000).default(0),view:z.enum(['ALL','PENDING_REVIEW','AWAITING_PARENT','CONFIRMED']).default('ALL'),learnerPersonId:z.string().uuid().optional()}).strict();
 export const familyClaimInput=z.object({token:inviteTokenSchema,acknowledgement:z.literal(true)}).strict();
 export const familyReviewInput=z.discriminatedUnion('decision',[
  z.object({decision:z.literal('CONFIRM'),verifiedBySchool:z.literal(true)}).strict(),
@@ -28,10 +28,10 @@ export async function createFamilyInvitation(pool:Pool,actor:string,school:strin
  VALUES($1,$2,$3,$4,$5,$6) RETURNING id,expires_at AS "expiresAt"`,[school,input.learnerPersonId,input.email,input.relationship,hashBearerToken(token),actor]);
  await audit(db,actor,'school.family_invitation.create',school,r.rows[0].id);return {...r.rows[0],token,emailStatus:'NOT_SENT' as const};
 });}
-export async function listFamilyInvitations(pool:Pool,actor:string,school:string,offset=0,view:'ALL'|'PENDING_REVIEW'|'AWAITING_PARENT'|'CONFIRMED'='ALL'){return transaction(pool,async db=>{
+export async function listFamilyInvitations(pool:Pool,actor:string,school:string,offset=0,view:'ALL'|'PENDING_REVIEW'|'AWAITING_PARENT'|'CONFIRMED'='ALL',learnerPersonId?:string){return transaction(pool,async db=>{
  await assertSchoolAdmin(db,actor,school);const r=await db.query(`SELECT id,learner_person_id AS "learnerPersonId",(SELECT admission_number FROM organisation.learner_registrations r WHERE r.school_id=organisation.family_invitations.school_id AND r.learner_person_id=organisation.family_invitations.learner_person_id) AS "admissionNumber",email,relationship,
  CASE WHEN status IN ('ISSUED','CLAIMED') AND expires_at<=clock_timestamp() THEN 'EXPIRED' ELSE status END AS status,
- expires_at AS "expiresAt",claimed_at AS "claimedAt",reviewed_at AS "reviewedAt" FROM organisation.family_invitations WHERE school_id=$1 AND ($3='ALL' OR($3='PENDING_REVIEW' AND status='CLAIMED' AND expires_at>clock_timestamp()) OR($3='AWAITING_PARENT' AND status='ISSUED' AND expires_at>clock_timestamp()) OR($3='CONFIRMED' AND status='CONFIRMED')) ORDER BY created_at DESC,id LIMIT 101 OFFSET $2`,[school,offset,view]);
+ expires_at AS "expiresAt",claimed_at AS "claimedAt",reviewed_at AS "reviewedAt" FROM organisation.family_invitations WHERE school_id=$1 AND ($4::uuid IS NULL OR learner_person_id=$4::uuid) AND ($3='ALL' OR($3='PENDING_REVIEW' AND status='CLAIMED' AND expires_at>clock_timestamp()) OR($3='AWAITING_PARENT' AND status='ISSUED' AND expires_at>clock_timestamp()) OR($3='CONFIRMED' AND status='CONFIRMED')) ORDER BY created_at DESC,id LIMIT 101 OFFSET $2`,[school,offset,view,learnerPersonId??null]);
  await audit(db,actor,'school.family_invitation.list',school,school);return {invitations:r.rows.slice(0,100),nextOffset:r.rows.length>100?offset+100:null};
 });}
 export async function claimFamilyInvitation(pool:Pool,person:string,verifiedEmail:string,value:unknown){const {token}=familyClaimInput.parse(value);return transaction(pool,async db=>{
@@ -64,4 +64,17 @@ export async function reviewFamilyInvitation(pool:Pool,actor:string,school:strin
  const reviewed=await db.query('UPDATE organisation.family_invitations SET status=$2,reviewed_by=$3,reviewed_at=clock_timestamp() WHERE id=$1 AND expires_at>clock_timestamp() RETURNING id',[id,input.decision==='CONFIRM'?'CONFIRMED':'DECLINED',actor]);if(!reviewed.rows.length)throw new AdminError('INVITATION_UNAVAILABLE',410);
  }
  await audit(db,actor,`school.family_invitation.${input.decision.toLowerCase()}`,school,id);return {status:input.decision==='CONFIRM'?'CONFIRMED':input.decision==='DECLINE'?'DECLINED':'REVOKED',grantsLearnerAccess:false};
+});}
+
+/** Recover sharing by rotating a still-issued token. No plaintext token recovery, expiry extension or role grant. */
+export async function replaceFamilyInvitation(pool:Pool,actor:string,school:string,id:string){return transaction(pool,async db=>{
+ await assertSchoolAdmin(db,actor,school);
+ const result=await db.query('SELECT * FROM organisation.family_invitations WHERE id=$1 AND school_id=$2 FOR UPDATE',[id,school]);const i=result.rows[0];
+ if(!i||i.status!=='ISSUED'||new Date(i.expires_at).getTime()<=Date.now())throw new AdminError('INVITATION_UNAVAILABLE',410);
+ await assertSchoolAdmin(db,i.created_by,school);await learner(db,school,i.learner_person_id);
+ const token=randomBytes(32).toString('base64url');
+ const updated=await db.query(`UPDATE organisation.family_invitations SET token_hash=$2 WHERE id=$1 AND status='ISSUED' AND expires_at>clock_timestamp() RETURNING id,email,expires_at AS "expiresAt"`,[id,hashBearerToken(token)]);
+ if(!updated.rows.length)throw new AdminError('INVITATION_UNAVAILABLE',410);
+ await audit(db,actor,'school.family_invitation.replace',school,id);
+ return {...updated.rows[0],token,emailStatus:'NOT_SENT' as const};
 });}
