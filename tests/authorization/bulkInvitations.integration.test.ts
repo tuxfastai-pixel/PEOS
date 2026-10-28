@@ -13,6 +13,7 @@ test("bulk invitations remain scoped, skip pending/current members and never ele
     const [admin,teacher,outsider]=people;const [school,otherSchool]=schools;
     await pool.query("INSERT INTO organisation.memberships(person_id,organisation_id,membership_type) VALUES ($1,$2,'STAFF'),($3,$4,'STAFF')",[admin,school,outsider,otherSchool]);
     await pool.query("INSERT INTO access.role_assignments(person_id,organisation_id,role_id) SELECT v.person,v.school,r.id FROM (VALUES ($1::uuid,$2::uuid),($3::uuid,$4::uuid)) v(person,school) CROSS JOIN access.roles r WHERE r.code='SCHOOL_ADMINISTRATOR'",[admin,school,outsider,otherSchool]);
+    await pool.query("INSERT INTO access.role_assignments(person_id,organisation_id,role_id) SELECT $1,$2,id FROM access.roles WHERE code='PRINCIPAL'",[admin,school]);
     const accepted=await createInvitation(pool,admin,school,{email:"member@example.test",roleCode:"TEACHER"});
     await acceptInvitation(pool,teacher,"member@example.test",accepted.token);
     await createInvitation(pool,admin,school,{email:"pending@example.test",roleCode:"TEACHER"});
