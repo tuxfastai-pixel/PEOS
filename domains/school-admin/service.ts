@@ -42,6 +42,14 @@ export async function assertSchoolAdmin(db: Database, personId: string, schoolId
   if (!result.rows.length) throw new AdminError("SCHOOL_ADMIN_REQUIRED");
 }
 
+export async function assertSchoolPrincipal(db: Database, personId: string, schoolId: string) {
+  await assertSchoolAdmin(db, personId, schoolId);
+  const result = await db.query(`SELECT ra.id FROM access.role_assignments ra JOIN access.roles r ON r.id=ra.role_id
+    WHERE ra.person_id=$1 AND ra.organisation_id=$2 AND r.code='PRINCIPAL' AND ra.status='ACTIVE'
+      AND ra.starts_at<=now() AND (ra.ends_at IS NULL OR ra.ends_at>now()) FOR SHARE OF ra`, [personId,schoolId]);
+  if (!result.rowCount) throw new AdminError("SCHOOL_PRINCIPAL_REQUIRED");
+}
+
 export async function listAdminSchools(db: Database, personId: string) {
   const result = await db.query(`SELECT DISTINCT o.id, o.display_name AS "displayName",
       EXISTS(SELECT 1 FROM access.role_assignments pr JOIN access.roles role ON role.id=pr.role_id
@@ -86,6 +94,7 @@ export async function listInvitations(pool: Pool, actor: string, schoolId: strin
 export async function createInvitation(pool: Pool, actor: string, schoolId: string, input: InvitationInput, options: {skipExistingMembers?:boolean} = {}) {
   return transaction(pool, async db => {
     await assertSchoolAdmin(db, actor, schoolId);
+    if (input.roleCode === "SCHOOL_ADMINISTRATOR") await assertSchoolPrincipal(db, actor, schoolId);
     await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [JSON.stringify([schoolId.toLowerCase(), input.email])]);
     if(options.skipExistingMembers){
       const member=await db.query(`SELECT m.id FROM organisation.staff_invitations i
@@ -111,11 +120,15 @@ export async function createInvitation(pool: Pool, actor: string, schoolId: stri
 export async function replaceInvitationLink(pool: Pool, actor: string, schoolId: string, invitationId: string) {
   return transaction(pool, async db => {
     await assertSchoolAdmin(db, actor, schoolId);
-    const existing = await db.query(`SELECT created_by FROM organisation.staff_invitations
+    const existing = await db.query(`SELECT created_by,role_code FROM organisation.staff_invitations
       WHERE id=$1 AND school_id=$2 AND accepted_at IS NULL AND revoked_at IS NULL
         AND expires_at>now() FOR UPDATE`, [invitationId, schoolId]);
     if (!existing.rows.length) throw new AdminError("INVITATION_UNAVAILABLE", 410);
     await assertSchoolAdmin(db, existing.rows[0].created_by, schoolId);
+    if (existing.rows[0].role_code === "SCHOOL_ADMINISTRATOR") {
+      await assertSchoolPrincipal(db, actor, schoolId);
+      await assertSchoolPrincipal(db, existing.rows[0].created_by, schoolId);
+    }
     const token = randomBytes(32).toString("base64url");
     // Atomic rotation serializes against acceptance and revocation. Keep the original
     // expiry and issuing administrator; replacement must not revive an unusable invite.
@@ -151,6 +164,7 @@ async function usableInvite(db: Database, token: string, lock = false) {
   const invitation = result.rows[0];
   // Revoking the issuing administrator's authority also invalidates their outstanding invitations.
   await assertSchoolAdmin(db, invitation.created_by, invitation.school_id);
+  if (invitation.role_code === "SCHOOL_ADMINISTRATOR") await assertSchoolPrincipal(db, invitation.created_by, invitation.school_id);
   return invitation;
 }
 
@@ -180,3 +194,4 @@ export async function acceptInvitation(pool: Pool, personId: string, verifiedEma
     return { schoolId: invitation.school_id, roleCode: invitation.role_code };
   });
 }
+

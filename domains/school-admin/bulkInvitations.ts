@@ -14,7 +14,7 @@ type Recipient=z.infer<typeof invitationSchema>;
 export type BulkInvitationResult=Recipient & (
   | {status:"CREATED";id:string;token:string;expiresAt:Date;emailStatus:"NOT_SENT"}
   | {status:"SKIPPED";reason:"INVITATION_ALREADY_PENDING"|"ALREADY_SCHOOL_MEMBER"}
-  | {status:"FAILED";reason:"SCHOOL_ADMIN_REQUIRED"|"SERVICE_UNAVAILABLE"}
+  | {status:"FAILED";reason:"SCHOOL_ADMIN_REQUIRED"|"SCHOOL_PRINCIPAL_REQUIRED"|"SERVICE_UNAVAILABLE"}
 );
 
 export async function createBulkInvitations(pool:Pool,actor:string,schoolId:string,input:z.infer<typeof bulkInvitationSchema>){
@@ -34,10 +34,10 @@ export async function createBulkInvitations(pool:Pool,actor:string,schoolId:stri
         if(code==="INVITATION_ALREADY_PENDING"||code==="ALREADY_SCHOOL_MEMBER"){
           results[index]={...recipient,status:"SKIPPED",reason:code};
         }else{
-          results[index]={...recipient,status:"FAILED",reason:code==="SCHOOL_ADMIN_REQUIRED"?code:"SERVICE_UNAVAILABLE"};
+          results[index]={...recipient,status:"FAILED",reason:code==="SCHOOL_ADMIN_REQUIRED"||code==="SCHOOL_PRINCIPAL_REQUIRED"?code:"SERVICE_UNAVAILABLE"};
         }
         await recordAuditEvent(pool,{actorPersonId:actor,action:"school.invitation.bulk_recipient",resourceType:"SchoolAdministration",
-          resourceId:schoolId,decision:"DENY",reason:["INVITATION_ALREADY_PENDING","ALREADY_SCHOOL_MEMBER","SCHOOL_ADMIN_REQUIRED"].includes(code)?code:"SERVICE_UNAVAILABLE"});
+          resourceId:schoolId,decision:"DENY",reason:["INVITATION_ALREADY_PENDING","ALREADY_SCHOOL_MEMBER","SCHOOL_ADMIN_REQUIRED","SCHOOL_PRINCIPAL_REQUIRED"].includes(code)?code:"SERVICE_UNAVAILABLE"});
       }
     }
   }
