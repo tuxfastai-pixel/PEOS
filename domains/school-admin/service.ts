@@ -54,7 +54,10 @@ export async function listAdminSchools(db: Database, personId: string) {
   const result = await db.query(`SELECT DISTINCT o.id, o.display_name AS "displayName",
       EXISTS(SELECT 1 FROM access.role_assignments pr JOIN access.roles role ON role.id=pr.role_id
         WHERE pr.person_id=$1 AND pr.organisation_id=o.id AND role.code='PRINCIPAL' AND pr.status='ACTIVE'
-          AND pr.starts_at<=now() AND (pr.ends_at IS NULL OR pr.ends_at>now())) AS principal
+          AND pr.starts_at<=now() AND (pr.ends_at IS NULL OR pr.ends_at>now())) AS principal,
+      EXISTS(SELECT 1 FROM access.role_assignments fr JOIN access.roles finance_role ON finance_role.id=fr.role_id
+        WHERE fr.person_id=$1 AND fr.organisation_id=o.id AND finance_role.code='SCHOOL_FINANCE_OFFICER' AND fr.status='ACTIVE'
+          AND fr.starts_at<=now() AND(fr.ends_at IS NULL OR fr.ends_at>now())) AS "canFinance"
     FROM organisation.organisations o JOIN organisation.memberships m ON m.organisation_id=o.id
     JOIN access.role_assignments ra ON ra.organisation_id=o.id AND ra.person_id=m.person_id
     JOIN access.roles r ON r.id=ra.role_id JOIN identity.persons p ON p.id=m.person_id
