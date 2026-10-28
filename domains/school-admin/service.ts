@@ -11,7 +11,7 @@ export const schoolIdSchema = z.string().uuid().transform(v=>v.toLowerCase());
 export const schoolNameSchema = z.object({ displayName: z.string().trim().min(2).max(120) }).strict();
 export const invitationSchema = z.object({
   email: z.string().trim().email().max(254).transform(v => v.toLowerCase()),
-  roleCode: z.enum(["TEACHER", "SCHOOL_ADMINISTRATOR"]),
+  roleCode: z.enum(["TEACHER", "SCHOOL_ADMINISTRATOR", "SCHOOL_FINANCE_OFFICER"]),
 }).strict();
 export const inviteTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
 type Database = Pick<Pool, "query">;
@@ -54,7 +54,10 @@ export async function listAdminSchools(db: Database, personId: string) {
   const result = await db.query(`SELECT DISTINCT o.id, o.display_name AS "displayName",
       EXISTS(SELECT 1 FROM access.role_assignments pr JOIN access.roles role ON role.id=pr.role_id
         WHERE pr.person_id=$1 AND pr.organisation_id=o.id AND role.code='PRINCIPAL' AND pr.status='ACTIVE'
-          AND pr.starts_at<=now() AND (pr.ends_at IS NULL OR pr.ends_at>now())) AS principal
+          AND pr.starts_at<=now() AND (pr.ends_at IS NULL OR pr.ends_at>now())) AS principal,
+      EXISTS(SELECT 1 FROM access.role_assignments fr JOIN access.roles finance_role ON finance_role.id=fr.role_id
+        WHERE fr.person_id=$1 AND fr.organisation_id=o.id AND finance_role.code='SCHOOL_FINANCE_OFFICER' AND fr.status='ACTIVE'
+          AND fr.starts_at<=now() AND(fr.ends_at IS NULL OR fr.ends_at>now())) AS "canFinance"
     FROM organisation.organisations o JOIN organisation.memberships m ON m.organisation_id=o.id
     JOIN access.role_assignments ra ON ra.organisation_id=o.id AND ra.person_id=m.person_id
     JOIN access.roles r ON r.id=ra.role_id JOIN identity.persons p ON p.id=m.person_id
@@ -94,7 +97,7 @@ export async function listInvitations(pool: Pool, actor: string, schoolId: strin
 export async function createInvitation(pool: Pool, actor: string, schoolId: string, input: InvitationInput, options: {skipExistingMembers?:boolean} = {}) {
   return transaction(pool, async db => {
     await assertSchoolAdmin(db, actor, schoolId);
-    if (input.roleCode === "SCHOOL_ADMINISTRATOR") await assertSchoolPrincipal(db, actor, schoolId);
+    if (input.roleCode !== "TEACHER") await assertSchoolPrincipal(db, actor, schoolId);
     await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [JSON.stringify([schoolId.toLowerCase(), input.email])]);
     if(options.skipExistingMembers){
       const member=await db.query(`SELECT m.id FROM organisation.staff_invitations i
@@ -125,7 +128,7 @@ export async function replaceInvitationLink(pool: Pool, actor: string, schoolId:
         AND expires_at>now() FOR UPDATE`, [invitationId, schoolId]);
     if (!existing.rows.length) throw new AdminError("INVITATION_UNAVAILABLE", 410);
     await assertSchoolAdmin(db, existing.rows[0].created_by, schoolId);
-    if (existing.rows[0].role_code === "SCHOOL_ADMINISTRATOR") {
+    if (existing.rows[0].role_code !== "TEACHER") {
       await assertSchoolPrincipal(db, actor, schoolId);
       await assertSchoolPrincipal(db, existing.rows[0].created_by, schoolId);
     }
@@ -164,7 +167,7 @@ async function usableInvite(db: Database, token: string, lock = false) {
   const invitation = result.rows[0];
   // Revoking the issuing administrator's authority also invalidates their outstanding invitations.
   await assertSchoolAdmin(db, invitation.created_by, invitation.school_id);
-  if (invitation.role_code === "SCHOOL_ADMINISTRATOR") await assertSchoolPrincipal(db, invitation.created_by, invitation.school_id);
+  if (invitation.role_code !== "TEACHER") await assertSchoolPrincipal(db, invitation.created_by, invitation.school_id);
   return invitation;
 }
 

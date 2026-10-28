@@ -1,0 +1,4 @@
+import {z} from 'zod';import {adminRequest} from '@/domains/school-admin/http';import {schoolIdSchema} from '@/domains/school-admin/service';import {listFinanceStaff,revokeFinanceStaff} from '@/domains/school-finance/authority';import {getDatabasePool} from '@/platform/db/pool';import {readRegistrationBody} from '@/domains/school-registration/http';
+type Context={params:Promise<{schoolId:string}>};
+export async function GET(request:Request,{params}:Context){return adminRequest(request,async s=>listFinanceStaff(getDatabasePool(),s.personId,schoolIdSchema.parse((await params).schoolId)));}
+export async function DELETE(request:Request,{params}:Context){return adminRequest(request,async s=>{const input=z.object({personId:schoolIdSchema}).strict().parse(await readRegistrationBody(request));return revokeFinanceStaff(getDatabasePool(),s.personId,schoolIdSchema.parse((await params).schoolId),input.personId);});}
