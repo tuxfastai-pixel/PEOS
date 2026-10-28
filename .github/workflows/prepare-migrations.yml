@@ -25,3 +25,12 @@ jobs:
           done
           find supabase/migrations -type f -name '*.sql' -print
           # This job creates files only; it has no database credentials and never applies SQL.
+      - name: Record migration checksums
+        run: sha256sum supabase/migrations/*.sql
+      - name: Preserve generated migration files
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: proposed-migrations-${{ github.sha }}
+          path: supabase/migrations/*.sql
+          if-no-files-found: error
+          retention-days: 14
