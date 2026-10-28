@@ -1,0 +1,2 @@
+import {adminRequest} from '@/domains/school-admin/http';import {getDatabasePool} from '@/platform/db/pool';import {listRegistrationQueue,pageInput} from '@/domains/school-registration/service';
+export async function GET(request:Request){return adminRequest(request,async s=>{const q=pageInput.parse(Object.fromEntries(new URL(request.url).searchParams));return listRegistrationQueue(getDatabasePool(),s.personId,q.offset);});}
