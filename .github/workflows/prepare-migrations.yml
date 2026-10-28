@@ -1,0 +1,36 @@
+name: Prepare migration files
+on:
+  push:
+    paths:
+      - 'docs/migration-proposals/*.sql'
+      - '.github/workflows/prepare-migrations.yml'
+permissions:
+  contents: read
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Generate reviewed proposal files with Supabase CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --version
+          for proposal in docs/migration-proposals/*.sql; do
+            [ -f "$proposal" ] || continue
+            migration_name="$(basename "$proposal" .sql)"
+            [[ "$migration_name" =~ ^[a-z][a-z0-9_]*$ ]] || exit 1
+            npx --yes supabase@2.81.3 migration new "$migration_name" < "$proposal"
+          done
+          find supabase/migrations -type f -name '*.sql' -print
+          # This job creates files only; it has no database credentials and never applies SQL.
+      - name: Record migration checksums
+        run: sha256sum supabase/migrations/*.sql
+      - name: Preserve generated migration files
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: proposed-migrations-${{ github.sha }}
+          path: supabase/migrations/*.sql
+          if-no-files-found: error
+          retention-days: 14
