@@ -1,5 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {randomUUID} from 'node:crypto';import {Pool} from 'pg';
-import {acceptInvitation,assertSchoolAdmin,createInvitation} from '../../domains/school-admin/service';import {financeSchools,financeContext,financeLearners,listFinanceStaff,revokeFinanceStaff} from '../../domains/school-finance/authority';
+import {acceptInvitation,assertSchoolAdmin,createInvitation} from '../../domains/school-admin/service';import {supportContext} from '../../domains/founder/service';
+import {financeSchools,financeContext,financeLearners,listFinanceStaff,revokeFinanceStaff} from '../../domains/school-finance/authority';
 test('finance is principal-delegated, purpose-scoped and immediately revocable without teacher/admin/founder inheritance',{skip:!process.env.CI||!process.env.DATABASE_URL},async()=>{
  const pool=new Pool({connectionString:process.env.DATABASE_URL});const people=Array.from({length:7},()=>randomUUID()),schools=[randomUUID(),randomUUID()];const [principal,officer,admin,teacher,founder,child,otherChild]=people,[school,otherSchool]=schools;
  try{
@@ -13,7 +14,7 @@ test('finance is principal-delegated, purpose-scoped and immediately revocable w
   const input={email:'finance@example.test',roleCode:'SCHOOL_FINANCE_OFFICER' as const};await assert.rejects(createInvitation(pool,admin,school,input),/SCHOOL_PRINCIPAL_REQUIRED/);
   const invite=await createInvitation(pool,principal,school,input);await acceptInvitation(pool,officer,input.email,invite.token);
   const context=await financeContext(pool,officer,school,child);assert.equal(context.principal,false);assert.equal(context.learner?.admissionNumber,'REF-0');
-  assert.equal((await financeContext(pool,principal,school)).principal,true);assert.equal((await financeSchools(pool,officer)).schools.length,1);
+  assert.equal((await financeContext(pool,principal,school)).principal,true);assert.equal((await financeSchools(pool,officer)).schools.length,1);assert.equal((await supportContext(pool,officer)).schools.length,1);
   for(const person of [admin,teacher,founder])await assert.rejects(financeContext(pool,person,school),/SCHOOL_FINANCE_REQUIRED/);
   assert.equal((await financeSchools(pool,founder)).schools.length,0);await assert.rejects(financeContext(pool,officer,otherSchool),/SCHOOL_FINANCE_REQUIRED/);
   await assert.rejects(assertSchoolAdmin(pool,officer,school),/SCHOOL_ADMIN_REQUIRED/);

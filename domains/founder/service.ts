@@ -22,7 +22,7 @@ export async function supportContext(pool:Pool,actor:string){
  JOIN organisation.memberships m ON m.organisation_id=o.id JOIN access.role_assignments ra ON ra.person_id=m.person_id AND ra.organisation_id=o.id JOIN access.roles r ON r.id=ra.role_id
  WHERE m.person_id=$1 AND o.organisation_type='SCHOOL' AND o.status='ACTIVE' AND m.membership_type='STAFF' AND m.status='ACTIVE'
  AND m.starts_at<=now() AND (m.ends_at IS NULL OR m.ends_at>now()) AND ra.status='ACTIVE' AND ra.starts_at<=now() AND (ra.ends_at IS NULL OR ra.ends_at>now())
- AND r.code IN ('TEACHER','PRINCIPAL','SCHOOL_ADMINISTRATOR') ORDER BY "displayName",o.id`,[actor]);
+ AND r.code IN ('TEACHER','PRINCIPAL','SCHOOL_ADMINISTRATOR','SCHOOL_FINANCE_OFFICER') ORDER BY "displayName",o.id`,[actor]);
  await db.query(`INSERT INTO audit.events(actor_person_id,action,resource_type,resource_id,decision,reason,metadata) VALUES($1::uuid,'support.context.read','SPACECASE_AUTHORITY',$1::uuid::text,'ALLOW','current_person_and_role_checks',$2::jsonb)`,[actor,JSON.stringify({founder:founder.rows.length>0,schoolCount:schools.rows.length})]);
  const observers=await db.query(`SELECT o.id,o.display_name AS "displayName",bool_or(r.code='SPACECASE_SUPPORT_AGENT') AS "canHandle" FROM organisation.organisations o
  JOIN organisation.memberships m ON m.organisation_id=o.id JOIN access.role_assignments ra ON ra.person_id=m.person_id AND ra.organisation_id=o.id JOIN access.roles r ON r.id=ra.role_id
