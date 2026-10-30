@@ -23,7 +23,7 @@ function validateReference(value: string) {
   if (!value.trim() || value.length > 120) throw new FinanceValidationError("INVALID_REFERENCE");
 }
 function validateDate(value: string) {
-  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(value) || Number.isNaN(Date.parse(value)))
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(value)))
     throw new FinanceValidationError("INVALID_DATE");
 }
 
