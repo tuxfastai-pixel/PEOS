@@ -73,7 +73,7 @@ export async function audit(db: Database, actor: string, action: string, schoolI
 
 export async function renameSchool(pool: Pool, actor: string, schoolId: string, displayName: string) {
   return transaction(pool, async db => {
-    await assertSchoolAdmin(db, actor, schoolId);
+    await assertSchoolPrincipal(db, actor, schoolId);
     const result = await db.query(`UPDATE organisation.organisations SET display_name=$2 WHERE id=$1 RETURNING id,display_name AS "displayName"`, [schoolId, displayName]);
     await audit(db, actor, "school.update", schoolId, schoolId);
     return result.rows[0];
