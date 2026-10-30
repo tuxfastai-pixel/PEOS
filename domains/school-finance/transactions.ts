@@ -29,10 +29,16 @@ export async function issueInvoice(pool: Pool, actor: string, schoolId: string, 
       if (!fee.rowCount || fee.rows[0].currency !== "ZAR" || Number(fee.rows[0].amount_cents) !== value.amountCents)
         throw new FinanceTransactionError("FEE_SCHEDULE_MISMATCH");
     }
+    const learner = await db.query(`SELECT 1 FROM organisation.memberships
+      WHERE person_id=$1 AND organisation_id=$2 AND membership_type='LEARNER'
+        AND status='ACTIVE' AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now())`,
+      [value.learnerPersonId, schoolId]);
+    if (!learner.rowCount) throw new FinanceTransactionError("LEARNER_NOT_ENROLLED");
     const result = await db.query(`INSERT INTO school_finance.invoices
       (school_id,learner_person_id,fee_schedule_id,invoice_number,amount_cents,due_date,created_by)
       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id,invoice_number,amount_cents`,
       [schoolId,value.learnerPersonId,value.feeScheduleId ?? null,value.invoiceNumber,value.amountCents,value.dueDate,actor]);
+    await db.query("INSERT INTO audit.events(actor_person_id,action,resource_type,resource_id,decision,metadata) VALUES ($1,$2,$3,$4,'ALLOW',$5::jsonb)", [actor, "FINANCE_INVOICE_ISSUED", "INVOICE", result.rows[0].id, JSON.stringify({ schoolId })]);
     return result.rows[0];
   });
 }
@@ -45,6 +51,7 @@ export async function recordPayment(pool: Pool, actor: string, schoolId: string,
       (school_id,payment_reference,amount_cents,received_at,source,recorded_by)
       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id,payment_reference,amount_cents`,
       [schoolId,value.paymentReference,value.amountCents,value.receivedAt,value.source,actor]);
+    await db.query("INSERT INTO audit.events(actor_person_id,action,resource_type,resource_id,decision,metadata) VALUES ($1,$2,$3,$4,'ALLOW',$5::jsonb)", [actor, "FINANCE_PAYMENT_RECORDED", "PAYMENT", result.rows[0].id, JSON.stringify({ schoolId })]);
     return result.rows[0];
   });
 }
@@ -72,6 +79,7 @@ export async function allocatePayment(pool: Pool, actor: string, schoolId: strin
     const result = await db.query(`INSERT INTO school_finance.payment_allocations
       (school_id,payment_id,invoice_id,amount_cents,allocated_by) VALUES ($1,$2,$3,$4,$5)
       RETURNING id,amount_cents`, [schoolId,value.paymentId,value.invoiceId,value.amountCents,actor]);
+    await db.query("INSERT INTO audit.events(actor_person_id,action,resource_type,resource_id,decision,metadata) VALUES ($1,$2,$3,$4,'ALLOW',$5::jsonb)", [actor, "FINANCE_PAYMENT_ALLOCATED", "PAYMENT_ALLOCATION", result.rows[0].id, JSON.stringify({ schoolId })]);
     return result.rows[0];
   });
 }
