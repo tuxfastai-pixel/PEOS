@@ -1,4 +1,4 @@
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { AdminError, transaction } from "../school-admin/service";
 import { canPerformSchoolFinanceAction, type FinanceAction, type SchoolFinanceRole } from "./permissions";
 
@@ -32,7 +32,7 @@ export async function withSchoolFinancePermission<T>(
   personId: string,
   schoolId: string,
   action: FinanceAction,
-  operation: (db: Parameters<Parameters<typeof transaction>[1]>[0]) => Promise<T>,
+  operation: (db: PoolClient) => Promise<T>,
 ): Promise<T> {
   return transaction(pool, async db => {
     await assertSchoolFinancePermission(db, personId, schoolId, action);
