@@ -24,7 +24,11 @@ test("school administration and invitations remain scoped, email-bound and revoc
     assert.equal((await listAdminSchools(pool, admin))[0].principal,false);
     await assert.rejects(assertSchoolAdmin(pool, recipient, school), /SCHOOL_ADMIN_REQUIRED/);
     await assert.rejects(renameSchool(pool, outsider, school, "Unauthorized rename"), /SCHOOL_ADMIN_REQUIRED/);
+    await assert.rejects(renameSchool(pool, admin, school, "Unauthorized admin rename"), /SCHOOL_PRINCIPAL_REQUIRED/);
+    await pool.query("INSERT INTO access.role_assignments(person_id,organisation_id,role_id) SELECT $1,$2,id FROM access.roles WHERE code='PRINCIPAL'", [admin, school]);
     assert.equal((await renameSchool(pool, admin, school, "Renamed pilot")).displayName, "Renamed pilot");
+    await pool.query("UPDATE access.role_assignments SET status='ENDED' WHERE person_id=$1 AND organisation_id=$2 AND role_id=(SELECT id FROM access.roles WHERE code='PRINCIPAL')", [admin, school]);
+    await assert.rejects(renameSchool(pool, admin, school, "Rename after principal revocation"), /SCHOOL_PRINCIPAL_REQUIRED/);
     const input = { email: "pilot@example.test", roleCode: "TEACHER" as const };
     const created = await createInvitation(pool, admin, school, input);
     assert.equal(created.delivery.status, "NOT_SENT");
