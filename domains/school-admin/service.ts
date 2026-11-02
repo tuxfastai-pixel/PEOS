@@ -85,7 +85,14 @@ export async function listInvitations(pool: Pool, actor: string, schoolId: strin
     await assertSchoolAdmin(db, actor, schoolId);
     const result = await db.query(`SELECT id,email,role_code AS "roleCode",expires_at AS "expiresAt",
       accepted_at AS "acceptedAt",revoked_at AS "revokedAt" FROM organisation.staff_invitations
-      WHERE school_id=$1 ORDER BY created_at DESC LIMIT 200`, [schoolId]);
+      WHERE school_id=$1 AND (
+        role_code='TEACHER' OR EXISTS (
+          SELECT 1 FROM access.role_assignments ra JOIN access.roles r ON r.id=ra.role_id
+          WHERE ra.person_id=$2 AND ra.organisation_id=$1 AND r.code='PRINCIPAL'
+            AND ra.status='ACTIVE' AND ra.starts_at<=now()
+            AND (ra.ends_at IS NULL OR ra.ends_at>now())
+        )
+      ) ORDER BY created_at DESC LIMIT 200`, [schoolId, actor]);
     await audit(db, actor, "school.invitation.list", schoolId, schoolId);
     return result.rows.map(row => ({ ...row, emailStatus: invitationDelivery.status }));
   });
