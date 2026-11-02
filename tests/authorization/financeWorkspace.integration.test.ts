@@ -83,6 +83,14 @@ test(
         "UPDATE organisation.memberships SET ends_at=NULL WHERE person_id=$1 AND organisation_id=$2",
         [officer, schoolId],
       );
+      // Deactivated identities must lose both finance discovery and action authority.
+      await pool.query("UPDATE identity.persons SET status='INACTIVE' WHERE id=$1", [officer]);
+      assert.equal((await listFinanceSchools(pool, officer)).schools.length, 0);
+      await assert.rejects(
+        assertSchoolFinancePermission(pool, officer, schoolId, "finance.transactions.record"),
+        /SCHOOL_FINANCE_FORBIDDEN/,
+      );
+      await pool.query("UPDATE identity.persons SET status='ACTIVE' WHERE id=$1", [officer]);
       assert.deepEqual(
         await financeLearner(pool, officer, schoolId, "FIN-TEST"),
         {
