@@ -137,6 +137,11 @@ test(
         acceptInvitation(pool, recipient, "cancelled-finance@example.test", cancelled.token),
         /INVITATION_UNAVAILABLE/,
       );
+      // A different school's principal cannot cancel this school's invitation.
+      await assert.rejects(
+        revokeInvitation(pool, outsider, schoolId, created.id),
+        /SCHOOL_ADMIN_REQUIRED/,
+      );
       await assert.rejects(
         acceptInvitation(pool, principal, invitation.email, created.token),
         /INDEPENDENT_FINANCE_STAFF_REQUIRED/,
