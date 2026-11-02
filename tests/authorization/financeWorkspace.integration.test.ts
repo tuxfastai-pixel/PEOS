@@ -162,6 +162,13 @@ test(
         /SCHOOL_PRINCIPAL_REQUIRED/,
       );
       await revokeFinanceStaff(pool, principal, schoolId, created.id);
+      // Revocation must immediately remove the school from the finance directory,
+      // not merely deny a subsequent financial command.
+      assert.equal((await listFinanceSchools(pool, recipient)).schools.length, 0);
+      await assert.rejects(
+        revokeFinanceStaff(pool, principal, schoolId, created.id),
+        /FINANCE_STAFF_UNAVAILABLE/,
+      );
       await assert.rejects(
         assertSchoolFinancePermission(
           pool,
