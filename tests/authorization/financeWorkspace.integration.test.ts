@@ -91,6 +91,20 @@ test(
         /SCHOOL_FINANCE_FORBIDDEN/,
       );
       await pool.query("UPDATE identity.persons SET status='ACTIVE' WHERE id=$1", [officer]);
+      // An expired finance role cannot grant access even with a live school membership.
+      await pool.query(
+        "UPDATE access.role_assignments SET ends_at=now()-interval '1 minute' WHERE person_id=$1 AND organisation_id=$2",
+        [officer, schoolId],
+      );
+      assert.equal((await listFinanceSchools(pool, officer)).schools.length, 0);
+      await assert.rejects(
+        assertSchoolFinancePermission(pool, officer, schoolId, "finance.transactions.record"),
+        /SCHOOL_FINANCE_FORBIDDEN/,
+      );
+      await pool.query(
+        "UPDATE access.role_assignments SET ends_at=NULL WHERE person_id=$1 AND organisation_id=$2",
+        [officer, schoolId],
+      );
       assert.deepEqual(
         await financeLearner(pool, officer, schoolId, "FIN-TEST"),
         {
