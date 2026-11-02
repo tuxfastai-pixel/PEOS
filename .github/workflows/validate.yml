@@ -59,6 +59,29 @@ jobs:
           test "$(psql "$DATABASE_URL" -Atc "SELECT to_regclass('organisation.learner_registrations') IS NOT NULL")" = "t"
           test "$(psql "$DATABASE_URL" -Atc "SELECT to_regclass('identity.person_names') IS NOT NULL")" = "t"
 
+      - name: Verify complete migration history and repeatability
+        run: |
+          set -euo pipefail
+          expected="$(find db/migrations -maxdepth 1 -type f -name '*.sql' | wc -l | tr -d ' ')"
+          actual="$(psql "$DATABASE_URL" -Atc "SELECT count(*) FROM audit.schema_migrations")"
+          test "$expected" = "$actual"
+          test "$(psql "$DATABASE_URL" -Atc "SELECT count(*) FROM audit.schema_migrations WHERE checksum !~ '^[0-9a-f]{64}        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Production build
+        run: npm run build
+")" = "0"
+          test "$(psql "$DATABASE_URL" -Atc "SELECT to_regclass('organisation.staff_invitations') IS NOT NULL")" = "t"
+          test "$(psql "$DATABASE_URL" -Atc "SELECT to_regclass('organisation.school_profiles') IS NOT NULL")" = "t"
+          test "$(psql "$DATABASE_URL" -Atc "SELECT to_regclass('school_finance.ledger_entries') IS NOT NULL")" = "t"
+          npm run db:migrate
+          test "$(psql "$DATABASE_URL" -Atc "SELECT count(*) FROM audit.schema_migrations")" = "$expected"
+
       - name: Typecheck
         run: npm run typecheck
 
