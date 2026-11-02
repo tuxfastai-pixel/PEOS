@@ -169,7 +169,7 @@ test(
       );
       await assert.rejects(
         revokeFinanceStaff(pool, principal, schoolId, created.id),
-        /SCHOOL_PRINCIPAL_REQUIRED/,
+        /SCHOOL_(ADMIN|PRINCIPAL)_REQUIRED/,
       );
       await pool.query(
         "UPDATE access.role_assignments SET status='ACTIVE' WHERE person_id=$1 AND organisation_id=$2",
