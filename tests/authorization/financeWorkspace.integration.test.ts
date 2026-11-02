@@ -73,6 +73,16 @@ test(
       await pool.query("UPDATE organisation.organisations SET status='INACTIVE' WHERE id=$1", [schoolId]);
       assert.equal((await listFinanceSchools(pool, officer)).schools.length, 0);
       await pool.query("UPDATE organisation.organisations SET status='ACTIVE' WHERE id=$1", [schoolId]);
+      // Membership expiry must revoke finance discovery independently of role status.
+      await pool.query(
+        "UPDATE organisation.memberships SET ends_at=now()-interval '1 minute' WHERE person_id=$1 AND organisation_id=$2",
+        [officer, schoolId],
+      );
+      assert.equal((await listFinanceSchools(pool, officer)).schools.length, 0);
+      await pool.query(
+        "UPDATE organisation.memberships SET ends_at=NULL WHERE person_id=$1 AND organisation_id=$2",
+        [officer, schoolId],
+      );
       assert.deepEqual(
         await financeLearner(pool, officer, schoolId, "FIN-TEST"),
         {
