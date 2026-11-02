@@ -105,6 +105,20 @@ test(
         "UPDATE access.role_assignments SET ends_at=NULL WHERE person_id=$1 AND organisation_id=$2",
         [officer, schoolId],
       );
+      // A future-dated role must not become usable before its start time.
+      await pool.query(
+        "UPDATE access.role_assignments SET starts_at=now()+interval '1 day' WHERE person_id=$1 AND organisation_id=$2",
+        [officer, schoolId],
+      );
+      assert.equal((await listFinanceSchools(pool, officer)).schools.length, 0);
+      await assert.rejects(
+        assertSchoolFinancePermission(pool, officer, schoolId, "finance.transactions.record"),
+        /SCHOOL_FINANCE_FORBIDDEN/,
+      );
+      await pool.query(
+        "UPDATE access.role_assignments SET starts_at=now()-interval '1 day' WHERE person_id=$1 AND organisation_id=$2",
+        [officer, schoolId],
+      );
       assert.deepEqual(
         await financeLearner(pool, officer, schoolId, "FIN-TEST"),
         {
