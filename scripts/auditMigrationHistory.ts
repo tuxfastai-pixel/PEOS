@@ -9,8 +9,6 @@ import { Client } from "pg";
  * Fails if migration history is missing, incomplete, has extra entries or mismatches.
  */
 async function main() {
-  const url = process.env.DATABASE_URL?.trim();
-  if (!url) throw new Error("DATABASE_URL is required (isolated preview only)");
   const directory = path.join(process.cwd(), "db", "migrations");
   const names = (await readdir(directory)).filter((name) => name.endsWith(".sql")).sort();
   const expected = new Map<string, string>();
@@ -18,6 +16,13 @@ async function main() {
     const bytes = await readFile(path.join(directory, name));
     expected.set(name, createHash("sha256").update(bytes).digest("hex"));
   }
+  if (process.argv.includes("--inventory")) {
+    for (const [name, checksum] of expected) console.log(`${name} ${checksum}`);
+    console.log(`Inventoried ${expected.size} SQL migrations (no database connection)`);
+    return;
+  }
+  const url = process.env.DATABASE_URL?.trim();
+  if (!url) throw new Error("DATABASE_URL is required (isolated preview only)");
   const client = new Client({ connectionString: url });
   await client.connect();
   try {
