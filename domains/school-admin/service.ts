@@ -147,6 +147,12 @@ export async function replaceInvitationLink(pool: Pool, actor: string, schoolId:
 export async function revokeInvitation(pool: Pool, actor: string, schoolId: string, invitationId: string) {
   return transaction(pool, async db => {
     await assertSchoolAdmin(db, actor, schoolId);
+    const pending = await db.query<{ role_code: string }>(
+      "SELECT role_code FROM organisation.staff_invitations WHERE id=$1 AND school_id=$2 AND accepted_at IS NULL AND revoked_at IS NULL FOR UPDATE",
+      [invitationId, schoolId],
+    );
+    if (!pending.rows.length) throw new AdminError("INVITATION_UNAVAILABLE", 404);
+    if (pending.rows[0].role_code !== "TEACHER") await assertSchoolPrincipal(db, actor, schoolId);
     const result = await db.query(`UPDATE organisation.staff_invitations SET revoked_at=now()
       WHERE id=$1 AND school_id=$2 AND accepted_at IS NULL AND revoked_at IS NULL RETURNING id`, [invitationId, schoolId]);
     if (!result.rows.length) throw new AdminError("INVITATION_UNAVAILABLE", 404);
