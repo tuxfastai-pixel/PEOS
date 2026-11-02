@@ -69,6 +69,16 @@ test(
         false,
       );
       assert.equal((await listFinanceSchools(pool, admin)).schools.length, 0);
+      // Dashboard role switching cannot elevate a school administrator into finance authority.
+      await assert.rejects(
+        assertSchoolFinancePermission(pool, admin, schoolId, "finance.reconciliation.approve"),
+        /SCHOOL_FINANCE_FORBIDDEN/,
+      );
+      await assert.rejects(
+        assertSchoolFinancePermission(pool, admin, schoolId, "finance.policy.manage"),
+        /SCHOOL_FINANCE_FORBIDDEN/,
+      );
+      await assertSchoolFinancePermission(pool, principal, schoolId, "finance.reconciliation.approve");
       // An inactive school must disappear from the finance directory even
       // while the person's finance assignment itself remains active.
       await pool.query("UPDATE organisation.organisations SET status='INACTIVE' WHERE id=$1", [schoolId]);
