@@ -122,6 +122,21 @@ test(
         revokeInvitation(pool, admin, schoolId, created.id),
         /SCHOOL_PRINCIPAL_REQUIRED/,
       );
+      // The principal can cancel a separate pending finance invitation,
+      // and its bearer token becomes unusable immediately.
+      const cancelled = await createInvitation(pool, principal, schoolId, {
+        email: "cancelled-finance@example.test",
+        roleCode: "FINANCE_MANAGER",
+      });
+      await revokeInvitation(pool, principal, schoolId, cancelled.id);
+      await assert.rejects(
+        previewInvitation(pool, cancelled.token),
+        /INVITATION_UNAVAILABLE/,
+      );
+      await assert.rejects(
+        acceptInvitation(pool, recipient, "cancelled-finance@example.test", cancelled.token),
+        /INVITATION_UNAVAILABLE/,
+      );
       await assert.rejects(
         acceptInvitation(pool, principal, invitation.email, created.token),
         /INDEPENDENT_FINANCE_STAFF_REQUIRED/,
