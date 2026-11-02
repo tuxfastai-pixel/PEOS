@@ -11,7 +11,7 @@ export const schoolIdSchema = z.string().uuid().transform(v=>v.toLowerCase());
 export const schoolNameSchema = z.object({ displayName: z.string().trim().min(2).max(120) }).strict();
 export const invitationSchema = z.object({
   email: z.string().trim().email().max(254).transform(v => v.toLowerCase()),
-  roleCode: z.enum(["TEACHER", "SCHOOL_ADMINISTRATOR"]),
+  roleCode: z.enum(["TEACHER", "SCHOOL_ADMINISTRATOR", "FINANCE_MANAGER", "FINANCE_OFFICER"]),
 }).strict();
 export const inviteTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
 type Database = Pick<Pool, "query">;
@@ -94,7 +94,8 @@ export async function listInvitations(pool: Pool, actor: string, schoolId: strin
 export async function createInvitation(pool: Pool, actor: string, schoolId: string, input: InvitationInput, options: {skipExistingMembers?:boolean} = {}) {
   return transaction(pool, async db => {
     await assertSchoolAdmin(db, actor, schoolId);
-    if (input.roleCode === "SCHOOL_ADMINISTRATOR") await assertSchoolPrincipal(db, actor, schoolId);
+    if(input.roleCode.startsWith("FINANCE_")&&process.env.PEOS_FINANCE_INVITATIONS_ENABLED!=="true")throw new AdminError("FINANCE_INVITATIONS_NOT_ENABLED",503);
+    if (input.roleCode !== "TEACHER") await assertSchoolPrincipal(db, actor, schoolId);
     await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [JSON.stringify([schoolId.toLowerCase(), input.email])]);
     if(options.skipExistingMembers){
       const member=await db.query(`SELECT m.id FROM organisation.staff_invitations i
@@ -125,7 +126,7 @@ export async function replaceInvitationLink(pool: Pool, actor: string, schoolId:
         AND expires_at>now() FOR UPDATE`, [invitationId, schoolId]);
     if (!existing.rows.length) throw new AdminError("INVITATION_UNAVAILABLE", 410);
     await assertSchoolAdmin(db, existing.rows[0].created_by, schoolId);
-    if (existing.rows[0].role_code === "SCHOOL_ADMINISTRATOR") {
+    if (existing.rows[0].role_code !== "TEACHER") {
       await assertSchoolPrincipal(db, actor, schoolId);
       await assertSchoolPrincipal(db, existing.rows[0].created_by, schoolId);
     }
@@ -162,9 +163,10 @@ async function usableInvite(db: Database, token: string, lock = false) {
       AND o.status='ACTIVE' AND o.organisation_type='SCHOOL' ${lock ? "FOR UPDATE OF i" : ""}`, [hashBearerToken(token)]);
   if (!result.rows[0]) throw new AdminError("INVITATION_UNAVAILABLE", 410);
   const invitation = result.rows[0];
+  if(invitation.role_code.startsWith("FINANCE_")&&process.env.PEOS_FINANCE_INVITATIONS_ENABLED!=="true")throw new AdminError("FINANCE_INVITATIONS_NOT_ENABLED",503);
   // Revoking the issuing administrator's authority also invalidates their outstanding invitations.
   await assertSchoolAdmin(db, invitation.created_by, invitation.school_id);
-  if (invitation.role_code === "SCHOOL_ADMINISTRATOR") await assertSchoolPrincipal(db, invitation.created_by, invitation.school_id);
+  if (invitation.role_code !== "TEACHER") await assertSchoolPrincipal(db, invitation.created_by, invitation.school_id);
   return invitation;
 }
 
@@ -178,6 +180,7 @@ export async function previewInvitation(pool: Pool, token: string) {
 export async function acceptInvitation(pool: Pool, personId: string, verifiedEmail: string, token: string) {
   return transaction(pool, async db => {
     const invitation = await usableInvite(db, token, true);
+    if(invitation.role_code.startsWith("FINANCE_")&&personId===invitation.created_by)throw new AdminError("INDEPENDENT_FINANCE_STAFF_REQUIRED");
     if (verifiedEmail.toLowerCase() !== invitation.email) throw new AdminError("INVITED_EMAIL_REQUIRED");
     const person = await db.query("SELECT id FROM identity.persons WHERE id=$1 AND status='ACTIVE' FOR SHARE", [personId]);
     if (!person.rows.length) throw new AdminError("ACTIVE_PERSON_REQUIRED");

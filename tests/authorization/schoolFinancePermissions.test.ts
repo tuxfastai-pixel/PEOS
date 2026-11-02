@@ -20,3 +20,8 @@ test("administrator and unrelated roles have no implicit finance access", () => 
     assert.equal(canPerformSchoolFinanceAction([role], "finance.transactions.read"), false);
   assert.equal(canPerformSchoolFinanceAction([], "finance.summary.read"), false);
 });
+test('payment verification requires principal or manager authority, never an officer',()=>{
+ assert.equal(canPerformSchoolFinanceAction(['PRINCIPAL'],'finance.payments.verify'),true);
+ assert.equal(canPerformSchoolFinanceAction(['FINANCE_MANAGER'],'finance.payments.verify'),true);
+ for(const role of ['FINANCE_OFFICER','SCHOOL_ADMINISTRATOR','TEACHER','PARENT'] as const)assert.equal(canPerformSchoolFinanceAction([role],'finance.payments.verify'),false);
+});

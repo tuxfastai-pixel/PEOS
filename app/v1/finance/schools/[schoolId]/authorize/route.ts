@@ -7,7 +7,7 @@ import type { FinanceAction } from "@/domains/school-finance/permissions";
 const actionSchema = z.enum([
   "finance.summary.read", "finance.transactions.read", "finance.transactions.record",
   "finance.reconciliation.prepare", "finance.reconciliation.approve",
-  "finance.policy.manage", "finance.expenditure.approve", "finance.audit.read",
+  "finance.policy.manage", "finance.expenditure.approve", "finance.audit.read", "finance.payments.verify",
 ]);
 const bodySchema = z.object({ action: actionSchema }).strict();
 const schoolSchema = z.string().uuid();
