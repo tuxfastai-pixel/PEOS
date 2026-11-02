@@ -13,6 +13,7 @@ import {
   acceptInvitation,
   previewInvitation,
   replaceInvitationLink,
+  revokeInvitation,
 } from "../../domains/school-admin/service";
 test(
   "finance directory, exact learner lookup, principal-only invitations and revocation use current school authority",
@@ -115,6 +116,10 @@ test(
       );
       await assert.rejects(
         replaceInvitationLink(pool, admin, schoolId, created.id),
+        /SCHOOL_PRINCIPAL_REQUIRED/,
+      );
+      await assert.rejects(
+        revokeInvitation(pool, admin, schoolId, created.id),
         /SCHOOL_PRINCIPAL_REQUIRED/,
       );
       await assert.rejects(
