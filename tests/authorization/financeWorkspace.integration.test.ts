@@ -168,6 +168,15 @@ test(
       );
       assert.equal((await listInvitations(pool, admin, schoolId)).some(invite => invite.id === created.id), false);
       assert.equal((await listInvitations(pool, principal, schoolId)).some(invite => invite.id === created.id), true);
+      // Ordinary teacher invitations remain visible to school administrators.
+      const teacherInvite = await createInvitation(pool, admin, schoolId, {
+        email: "synthetic-teacher@example.test",
+        roleCode: "TEACHER",
+      });
+      assert.equal(
+        (await listInvitations(pool, admin, schoolId)).some(invite => invite.id === teacherInvite.id),
+        true,
+      );
       await assert.rejects(
         replaceInvitationLink(pool, admin, schoolId, created.id),
         /SCHOOL_PRINCIPAL_REQUIRED/,
