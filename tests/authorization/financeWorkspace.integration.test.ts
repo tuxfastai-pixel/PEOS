@@ -161,6 +161,20 @@ test(
         revokeFinanceStaff(pool, admin, schoolId, created.id),
         /SCHOOL_PRINCIPAL_REQUIRED/,
       );
+      // Removing principal authority must immediately block staff-management actions,
+      // even for an invitation the same principal originally created.
+      await pool.query(
+        "UPDATE access.role_assignments SET status='ENDED' WHERE person_id=$1 AND organisation_id=$2",
+        [principal, schoolId],
+      );
+      await assert.rejects(
+        revokeFinanceStaff(pool, principal, schoolId, created.id),
+        /SCHOOL_PRINCIPAL_REQUIRED/,
+      );
+      await pool.query(
+        "UPDATE access.role_assignments SET status='ACTIVE' WHERE person_id=$1 AND organisation_id=$2",
+        [principal, schoolId],
+      );
       await revokeFinanceStaff(pool, principal, schoolId, created.id);
       // Revocation must immediately remove the school from the finance directory,
       // not merely deny a subsequent financial command.
