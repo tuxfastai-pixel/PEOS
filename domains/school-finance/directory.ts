@@ -119,10 +119,12 @@ export async function revokeFinanceStaff(
     );
     if (!invite.rows[0] || invite.rows[0].accepted_by === actor)
       throw new AdminError("FINANCE_STAFF_UNAVAILABLE", 403);
-    await db.query(
-      `UPDATE access.role_assignments SET status='ENDED',ends_at=now() WHERE person_id=$1 AND organisation_id=$2 AND role_id=(SELECT id FROM access.roles WHERE code=$3) AND status='ACTIVE'`,
+    const ended = await db.query(
+      `UPDATE access.role_assignments SET status='ENDED',ends_at=now() WHERE person_id=$1 AND organisation_id=$2 AND role_id=(SELECT id FROM access.roles WHERE code=$3) AND status='ACTIVE' AND starts_at<=now() AND (ends_at IS NULL OR ends_at>now()) RETURNING person_id`,
       [invite.rows[0].accepted_by, schoolId, invite.rows[0].role_code],
     );
+    if (ended.rowCount !== 1)
+      throw new AdminError("FINANCE_STAFF_UNAVAILABLE", 403);
     await audit(db, actor, "finance.staff.revoke", schoolId, invitationId);
     await db.query("COMMIT");
     return { revoked: true };
