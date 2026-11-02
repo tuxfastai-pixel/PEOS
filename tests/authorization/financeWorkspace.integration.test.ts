@@ -79,6 +79,16 @@ test(
         /SCHOOL_FINANCE_FORBIDDEN/,
       );
       await assertSchoolFinancePermission(pool, principal, schoolId, "finance.reconciliation.approve");
+      // A finance officer can prepare reconciliation but cannot approve it or verify payments.
+      await assertSchoolFinancePermission(pool, officer, schoolId, "finance.reconciliation.prepare");
+      await assert.rejects(
+        assertSchoolFinancePermission(pool, officer, schoolId, "finance.reconciliation.approve"),
+        /SCHOOL_FINANCE_FORBIDDEN/,
+      );
+      await assert.rejects(
+        assertSchoolFinancePermission(pool, officer, schoolId, "finance.payments.verify"),
+        /SCHOOL_FINANCE_FORBIDDEN/,
+      );
       // An inactive school must disappear from the finance directory even
       // while the person's finance assignment itself remains active.
       await pool.query("UPDATE organisation.organisations SET status='INACTIVE' WHERE id=$1", [schoolId]);
