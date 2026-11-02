@@ -68,6 +68,11 @@ test(
         false,
       );
       assert.equal((await listFinanceSchools(pool, admin)).schools.length, 0);
+      // An inactive school must disappear from the finance directory even
+      // while the person's finance assignment itself remains active.
+      await pool.query("UPDATE organisation.organisations SET status='INACTIVE' WHERE id=$1", [schoolId]);
+      assert.equal((await listFinanceSchools(pool, officer)).schools.length, 0);
+      await pool.query("UPDATE organisation.organisations SET status='ACTIVE' WHERE id=$1", [schoolId]);
       assert.deepEqual(
         await financeLearner(pool, officer, schoolId, "FIN-TEST"),
         {
