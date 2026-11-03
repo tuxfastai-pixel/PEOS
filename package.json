@@ -11,6 +11,7 @@
     "lint": "eslint . --max-warnings=0",
     "test": "tsx --test tests/**/*.test.ts",
     "db:migrate": "tsx db/migrate.ts",
+    "db:verify-migrations": "tsx db/migrate.ts --verify-only",
     "db:audit-migrations": "tsx scripts/auditMigrationHistory.ts",
     "identity:provision": "tsx scripts/provisionCredentialIdentity.ts",
     "teacher:bootstrap": "tsx scripts/bootstrapTeacherContext.ts",
