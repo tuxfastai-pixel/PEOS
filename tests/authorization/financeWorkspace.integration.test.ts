@@ -1,0 +1,353 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { Pool } from "pg";
+import {
+  listFinanceSchools,
+  financeLearner,
+  revokeFinanceStaff,
+} from "../../domains/school-finance/directory";
+import { assertSchoolFinancePermission } from "../../domains/school-finance/authorization";
+import {
+  createInvitation,
+  acceptInvitation,
+  previewInvitation,
+  replaceInvitationLink,
+  revokeInvitation,
+  listInvitations,
+} from "../../domains/school-admin/service";
+test(
+  "finance directory, exact learner lookup, principal-only invitations and revocation use current school authority",
+  { skip: !process.env.CI || !process.env.DATABASE_URL, timeout: 60000 },
+  async () => {
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    const people = Array.from({ length: 6 }, () => randomUUID()),
+      [principal, officer, admin, learner, recipient, outsider] = people,
+      schools = [randomUUID(), randomUUID()],
+      [schoolId, otherSchool] = schools;
+    const old = process.env.PEOS_FINANCE_INVITATIONS_ENABLED;
+    try {
+      for (const id of people)
+        await pool.query("INSERT INTO identity.persons(id) VALUES($1)", [id]);
+      for (const id of schools)
+        await pool.query(
+          "INSERT INTO organisation.organisations(id,organisation_type,display_name) VALUES($1,'SCHOOL','Synthetic finance school')",
+          [id],
+        );
+      for (const [id, school, role] of [
+        [principal, schoolId, "PRINCIPAL"],
+        [officer, schoolId, "FINANCE_OFFICER"],
+        [admin, schoolId, "SCHOOL_ADMINISTRATOR"],
+        [outsider, otherSchool, "FINANCE_MANAGER"],
+      ]) {
+        await pool.query(
+          "INSERT INTO organisation.memberships(person_id,organisation_id,membership_type) VALUES($1,$2,'STAFF')",
+          [id, school],
+        );
+        await pool.query(
+          "INSERT INTO access.role_assignments(person_id,organisation_id,role_id) SELECT $1,$2,id FROM access.roles WHERE code=$3",
+          [id, school, role],
+        );
+      }
+      await pool.query(
+        "INSERT INTO organisation.memberships(person_id,organisation_id,membership_type) VALUES($1,$2,'LEARNER')",
+        [learner, schoolId],
+      );
+      await pool.query(
+        "INSERT INTO identity.person_names(person_id,given_name,family_name) VALUES($1,'Synthetic','Learner')",
+        [learner],
+      );
+      await pool.query(
+        "INSERT INTO organisation.learner_registrations(school_id,learner_person_id,admission_number,created_by) VALUES($1,$2,'FIN-TEST',$3)",
+        [schoolId, learner, principal],
+      );
+      const directory = await listFinanceSchools(pool, officer);
+      assert.equal(directory.schools.length, 1);
+      assert.equal(directory.schools[0].id, schoolId);
+      assert.equal(
+        directory.schools[0].actions.includes("finance.payments.verify"),
+        false,
+      );
+      assert.equal((await listFinanceSchools(pool, admin)).schools.length, 0);
+      // Dashboard role switching cannot elevate a school administrator into finance authority.
+      await assert.rejects(
+        assertSchoolFinancePermission(pool, admin, schoolId, "finance.reconciliation.approve"),
+        /SCHOOL_FINANCE_FORBIDDEN/,
+      );
+      await assert.rejects(
+        assertSchoolFinancePermission(pool, admin, schoolId, "finance.policy.manage"),
+        /SCHOOL_FINANCE_FORBIDDEN/,
+      );
+      await assertSchoolFinancePermission(pool, principal, schoolId, "finance.reconciliation.approve");
+      // A finance officer can prepare reconciliation but cannot approve it or verify payments.
+      await assertSchoolFinancePermission(pool, officer, schoolId, "finance.reconciliation.prepare");
+      await assert.rejects(
+        assertSchoolFinancePermission(pool, officer, schoolId, "finance.reconciliation.approve"),
+        /SCHOOL_FINANCE_FORBIDDEN/,
+      );
+      await assert.rejects(
+        assertSchoolFinancePermission(pool, officer, schoolId, "finance.payments.verify"),
+        /SCHOOL_FINANCE_FORBIDDEN/,
+      );
+      // An inactive school must disappear from the finance directory even
+      // while the person's finance assignment itself remains active.
+      await pool.query("UPDATE organisation.organisations SET status='INACTIVE' WHERE id=$1", [schoolId]);
+      assert.equal((await listFinanceSchools(pool, officer)).schools.length, 0);
+      await pool.query("UPDATE organisation.organisations SET status='ACTIVE' WHERE id=$1", [schoolId]);
+      // Membership expiry must revoke finance discovery independently of role status.
+      await pool.query(
+        "UPDATE organisation.memberships SET ends_at=now()-interval '1 minute' WHERE person_id=$1 AND organisation_id=$2",
+        [officer, schoolId],
+      );
+      assert.equal((await listFinanceSchools(pool, officer)).schools.length, 0);
+      await pool.query(
+        "UPDATE organisation.memberships SET ends_at=NULL WHERE person_id=$1 AND organisation_id=$2",
+        [officer, schoolId],
+      );
+      // Deactivated identities must lose both finance discovery and action authority.
+      await pool.query("UPDATE identity.persons SET status='INACTIVE' WHERE id=$1", [officer]);
+      assert.equal((await listFinanceSchools(pool, officer)).schools.length, 0);
+      await assert.rejects(
+        assertSchoolFinancePermission(pool, officer, schoolId, "finance.transactions.record"),
+        /SCHOOL_FINANCE_FORBIDDEN/,
+      );
+      await pool.query("UPDATE identity.persons SET status='ACTIVE' WHERE id=$1", [officer]);
+      // An expired finance role cannot grant access even with a live school membership.
+      await pool.query(
+        "UPDATE access.role_assignments SET ends_at=now()-interval '1 minute' WHERE person_id=$1 AND organisation_id=$2",
+        [officer, schoolId],
+      );
+      assert.equal((await listFinanceSchools(pool, officer)).schools.length, 0);
+      await assert.rejects(
+        assertSchoolFinancePermission(pool, officer, schoolId, "finance.transactions.record"),
+        /SCHOOL_FINANCE_FORBIDDEN/,
+      );
+      await pool.query(
+        "UPDATE access.role_assignments SET ends_at=NULL WHERE person_id=$1 AND organisation_id=$2",
+        [officer, schoolId],
+      );
+      // A future-dated role must not become usable before its start time.
+      await pool.query(
+        "UPDATE access.role_assignments SET starts_at=now()+interval '1 day' WHERE person_id=$1 AND organisation_id=$2",
+        [officer, schoolId],
+      );
+      assert.equal((await listFinanceSchools(pool, officer)).schools.length, 0);
+      await assert.rejects(
+        assertSchoolFinancePermission(pool, officer, schoolId, "finance.transactions.record"),
+        /SCHOOL_FINANCE_FORBIDDEN/,
+      );
+      await pool.query(
+        "UPDATE access.role_assignments SET starts_at=now()-interval '1 day' WHERE person_id=$1 AND organisation_id=$2",
+        [officer, schoolId],
+      );
+      assert.deepEqual(
+        await financeLearner(pool, officer, schoolId, "FIN-TEST"),
+        {
+          personId: learner,
+          admissionNumber: "FIN-TEST",
+          givenName: "Synthetic",
+          familyName: "Learner",
+        },
+      );
+      for (const [person, school] of [
+        [admin, schoolId],
+        [outsider, schoolId],
+        [officer, otherSchool],
+      ])
+        await assert.rejects(
+          financeLearner(pool, person, school, "FIN-TEST"),
+          /SCHOOL_FINANCE_FORBIDDEN/,
+        );
+      await pool.query(
+        "UPDATE organisation.memberships SET status='ENDED' WHERE person_id=$1",
+        [learner],
+      );
+      await assert.rejects(
+        financeLearner(pool, officer, schoolId, "FIN-TEST"),
+        /SCHOOL_FINANCE_FORBIDDEN/,
+      );
+      const invitation = {
+        email: "synthetic-finance@example.test",
+        roleCode: "FINANCE_OFFICER" as const,
+      };
+      delete process.env.PEOS_FINANCE_INVITATIONS_ENABLED;
+      await assert.rejects(
+        createInvitation(pool, principal, schoolId, invitation),
+        /FINANCE_INVITATIONS_NOT_ENABLED/,
+      );
+      process.env.PEOS_FINANCE_INVITATIONS_ENABLED = "true";
+      await assert.rejects(
+        createInvitation(pool, admin, schoolId, invitation),
+        /SCHOOL_PRINCIPAL_REQUIRED/,
+      );
+      const created = await createInvitation(
+        pool,
+        principal,
+        schoolId,
+        invitation,
+      );
+      assert.equal((await listInvitations(pool, admin, schoolId)).some(invite => invite.id === created.id), false);
+      assert.equal((await listInvitations(pool, principal, schoolId)).some(invite => invite.id === created.id), true);
+      // Ordinary teacher invitations remain visible to school administrators.
+      const teacherInvite = await createInvitation(pool, admin, schoolId, {
+        email: "synthetic-teacher@example.test",
+        roleCode: "TEACHER",
+      });
+      assert.equal(
+        (await listInvitations(pool, admin, schoolId)).some(invite => invite.id === teacherInvite.id),
+        true,
+      );
+      await assert.rejects(
+        replaceInvitationLink(pool, admin, schoolId, created.id),
+        /SCHOOL_PRINCIPAL_REQUIRED/,
+      );
+      await assert.rejects(
+        revokeInvitation(pool, admin, schoolId, created.id),
+        /SCHOOL_PRINCIPAL_REQUIRED/,
+      );
+      // The principal can cancel a separate pending finance invitation,
+      // and its bearer token becomes unusable immediately.
+      const cancelled = await createInvitation(pool, principal, schoolId, {
+        email: "cancelled-finance@example.test",
+        roleCode: "FINANCE_MANAGER",
+      });
+      await revokeInvitation(pool, principal, schoolId, cancelled.id);
+      await assert.rejects(
+        previewInvitation(pool, cancelled.token),
+        /INVITATION_UNAVAILABLE/,
+      );
+      await assert.rejects(
+        acceptInvitation(pool, recipient, "cancelled-finance@example.test", cancelled.token),
+        /INVITATION_UNAVAILABLE/,
+      );
+      // A different school's principal cannot cancel this school's invitation.
+      await assert.rejects(
+        revokeInvitation(pool, outsider, schoolId, created.id),
+        /SCHOOL_ADMIN_REQUIRED/,
+      );
+      await assert.rejects(
+        acceptInvitation(pool, principal, invitation.email, created.token),
+        /INDEPENDENT_FINANCE_STAFF_REQUIRED/,
+      );
+      await assert.rejects(
+        acceptInvitation(pool, recipient, "wrong@example.test", created.token),
+        /INVITED_EMAIL_REQUIRED/,
+      );
+      await pool.query(
+        "UPDATE access.role_assignments SET status='ENDED' WHERE person_id=$1",
+        [principal],
+      );
+      await assert.rejects(
+        previewInvitation(pool, created.token),
+        /SCHOOL_ADMIN_REQUIRED/,
+      );
+      await assert.rejects(
+        acceptInvitation(pool, recipient, invitation.email, created.token),
+        /SCHOOL_ADMIN_REQUIRED/,
+      );
+      await pool.query(
+        "UPDATE access.role_assignments SET status='ACTIVE' WHERE person_id=$1",
+        [principal],
+      );
+      await acceptInvitation(pool, recipient, invitation.email, created.token);
+      await assertSchoolFinancePermission(
+        pool,
+        recipient,
+        schoolId,
+        "finance.transactions.record",
+      );
+      await assert.rejects(
+        assertSchoolFinancePermission(
+          pool,
+          recipient,
+          schoolId,
+          "finance.payments.verify",
+        ),
+        /SCHOOL_FINANCE_FORBIDDEN/,
+      );
+      await assert.rejects(
+        revokeFinanceStaff(pool, admin, schoolId, created.id),
+        /SCHOOL_PRINCIPAL_REQUIRED/,
+      );
+      // Removing principal authority must immediately block staff-management actions,
+      // even for an invitation the same principal originally created.
+      await pool.query(
+        "UPDATE access.role_assignments SET status='ENDED' WHERE person_id=$1 AND organisation_id=$2",
+        [principal, schoolId],
+      );
+      await assert.rejects(
+        revokeFinanceStaff(pool, principal, schoolId, created.id),
+        /SCHOOL_(ADMIN|PRINCIPAL)_REQUIRED/,
+      );
+      await pool.query(
+        "UPDATE access.role_assignments SET status='ACTIVE' WHERE person_id=$1 AND organisation_id=$2",
+        [principal, schoolId],
+      );
+      await revokeFinanceStaff(pool, principal, schoolId, created.id);
+      // Revocation must immediately remove the school from the finance directory,
+      // not merely deny a subsequent financial command.
+      assert.equal((await listFinanceSchools(pool, recipient)).schools.length, 0);
+      await assert.rejects(
+        revokeFinanceStaff(pool, principal, schoolId, created.id),
+        /FINANCE_STAFF_UNAVAILABLE/,
+      );
+      await assert.rejects(
+        assertSchoolFinancePermission(
+          pool,
+          recipient,
+          schoolId,
+          "finance.transactions.read",
+        ),
+        /SCHOOL_FINANCE_FORBIDDEN/,
+      );
+      await pool.query(
+        "UPDATE access.role_assignments SET ends_at=now()-interval '1 minute' WHERE person_id=$1",
+        [officer],
+      );
+      assert.equal((await listFinanceSchools(pool, officer)).schools.length, 0);
+      const audit = await pool.query(
+        "SELECT metadata::text FROM audit.events WHERE action='finance.learner.lookup' AND actor_person_id=$1",
+        [officer],
+      );
+      assert.equal(JSON.stringify(audit.rows).includes("FIN-TEST"), false);
+      assert.equal(JSON.stringify(audit.rows).includes("Synthetic"), false);
+    } finally {
+      if (old === undefined)
+        delete process.env.PEOS_FINANCE_INVITATIONS_ENABLED;
+      else process.env.PEOS_FINANCE_INVITATIONS_ENABLED = old;
+      await pool.query(
+        "DELETE FROM organisation.staff_invitations WHERE school_id=ANY($1::uuid[])",
+        [schools],
+      );
+      await pool.query(
+        "DELETE FROM organisation.learner_registrations WHERE school_id=ANY($1::uuid[])",
+        [schools],
+      );
+      await pool.query(
+        "DELETE FROM identity.person_names WHERE person_id=ANY($1::uuid[])",
+        [people],
+      );
+      await pool.query(
+        "DELETE FROM access.role_assignments WHERE person_id=ANY($1::uuid[])",
+        [people],
+      );
+      await pool.query(
+        "DELETE FROM organisation.memberships WHERE organisation_id=ANY($1::uuid[])",
+        [schools],
+      );
+      await pool.query(
+        "DELETE FROM audit.events WHERE actor_person_id=ANY($1::uuid[])",
+        [people],
+      );
+      await pool.query(
+        "DELETE FROM organisation.organisations WHERE id=ANY($1::uuid[])",
+        [schools],
+      );
+      await pool.query(
+        "DELETE FROM identity.persons WHERE id=ANY($1::uuid[])",
+        [people],
+      );
+      await pool.end();
+    }
+  },
+);

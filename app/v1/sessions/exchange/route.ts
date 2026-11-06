@@ -60,6 +60,7 @@ export async function POST(request: Request): Promise<Response> {
     });
   } catch (error) {
     if (error instanceof joseErrors.JOSEError || (error instanceof Error && /JWT|JWKS|OIDC|signature|issuer|audience/i.test(error.message))) {
+      console.error("PEOS_OIDC_EXCHANGE", { outcome: "token_rejected", category: error instanceof joseErrors.JOSEError ? "jose_verification" : "oidc_verification" });
       return Response.json({ error: "UNAUTHENTICATED" }, { status: 401 });
     }
     throw error;
