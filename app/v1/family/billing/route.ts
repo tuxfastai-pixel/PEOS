@@ -1,0 +1,2 @@
+import {familyBillingRequest} from '@/domains/family-billing/http';import {listFamilyBilling} from '@/domains/family-billing/service';import {getDatabasePool} from '@/platform/db/pool';import {z} from 'zod';
+export async function GET(request:Request){return familyBillingRequest(request,person=>{z.object({}).strict().parse(Object.fromEntries(new URL(request.url).searchParams));return listFamilyBilling(getDatabasePool(),person);});}
