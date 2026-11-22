@@ -1,0 +1,11 @@
+# SpaceCase proof-worker authority
+
+22 November 2026. Source prepared, default off; no credential or deployed service activation.
+
+The private POST `/v1/integrations/spacecase/payment-proofs/authorize` authenticates a dedicated service credential, not a user session. It accepts only `proof-worker-v1` / `PAYMENT_PROOF_SCAN` and exact grant/person/school/learner UUIDs. It returns the existing `family-billing-v1` decision for `family.finance.proof.submit` only. No billing grant, relationship, staff role, financial data, names or document access is created or returned.
+
+Requires PEOS_FAMILY_BILLING_ENABLED=true and PEOS_SPACECASE_PROOF_WORKER_ENABLED=true. Configure only the SHA-256 hash of an independently generated 32-byte base64url service token in PEOS_SPACECASE_PROOF_WORKER_TOKEN_SHA256. The private worker holds the original token, never a parent's bearer token. Require a bounded explicit school UUID allowlist in PEOS_SPACECASE_PROOF_WORKER_SCHOOLS. Do not reuse user cookies, preview bypass tokens or administrator credentials. Token comparison is timing-safe; unknown tokens and non-allowlisted schools fail before grant lookup. No secret is generated, printed or installed by source/migration.
+
+Canonical checks reuse the current family invitation/contact, adult and child status, learner registration/membership, original Principal issuer authority, grant action/status/expiry and exact scope. Withdrawal, revocation, expiry or role loss denies future checks. Audit records identify the service client/purpose with null human actor, never pretending the parent made a background request. Decisions expire after 30 seconds. A missing database or policy check fails closed.
+
+Tests: token/gate/purpose/school/body bounds and real PostgreSQL current scope/revocation. Local pure/type/lint/build and CI evidence are recorded in the SpaceCase feature register. Runtime operation, credential rotation, secret storage, private worker hosting, monitored signature updates and real scanner/canonical service walkthrough remain prerequisites. No Production change or outgoing messages.

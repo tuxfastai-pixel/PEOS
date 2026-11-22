@@ -56,3 +56,9 @@ export async function authorizeFamilyBilling(pool:Pool,person:string,grantId:str
  const row=rows.rows[0];if(!row){await audit(db,person,'family.billing.authorize',grantId,'DENY','family_billing_scope_unavailable');return null;}
  await audit(db,person,'family.billing.authorize',grantId);return {allowed:true as const,contractVersion:billingContractVersion,grantId:row.id,personId:person,schoolId:row.school_id,learnerPersonId:row.learner_person_id,action,expiresAt:new Date(Date.now()+30000).toISOString()};
 });}
+/** Dedicated service credential authenticates the caller; this still requires an existing current parent grant. */
+export async function authorizeFamilyProofWorker(pool:Pool,input:{grantId:string;personId:string;schoolId:string;learnerPersonId:string}){return transaction(pool,async db=>{
+ const rows=await db.query(`SELECT g.id,g.school_id,g.learner_person_id ${joins} JOIN access.family_billing_grants g ON g.relationship_id=f.id WHERE ${allowedGrant} AND g.id=$2 AND 'family.finance.proof.submit'=ANY(g.actions) AND g.school_id=$3 AND g.learner_person_id=$4`,[input.personId,input.grantId,input.schoolId,input.learnerPersonId]);const row=rows.rows[0];
+ await db.query("INSERT INTO audit.events(actor_person_id,action,resource_type,resource_id,decision,reason,metadata) VALUES(NULL,'service.spacecase.proof.authorize','FAMILY_BILLING',$1,$2,'current_proof_submit_scope',$3::jsonb)",[input.grantId,row?'ALLOW':'DENY',JSON.stringify({client:'spacecase-proof-worker',purpose:'PAYMENT_PROOF_SCAN',contract:'proof-worker-v1'})]);
+ return row?{allowed:true as const,contractVersion:billingContractVersion,grantId:row.id,personId:input.personId,schoolId:row.school_id,learnerPersonId:row.learner_person_id,action:'family.finance.proof.submit' as const,expiresAt:new Date(Date.now()+30000).toISOString()}:null;
+});}
