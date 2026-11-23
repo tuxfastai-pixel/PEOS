@@ -15,7 +15,7 @@ test('family billing requires explicit current school authority, never leaks oth
   await assert.rejects(grantFamilyBilling(pool,admin,school,input),/SCHOOL_PRINCIPAL_REQUIRED/);
   const results=await Promise.all([grantFamilyBilling(pool,principal,school,input),grantFamilyBilling(pool,principal,school,input)]);assert.equal(results[0].id,results[1].id);grantId=results[0].id;
   const allowed=await authorizeFamilyBilling(pool,parent,grantId,'family.finance.read');assert.equal(allowed?.schoolId,school);assert.equal(allowed?.learnerPersonId,child);assert.equal(allowed?.personId,parent);assert.equal(allowed?.contractVersion,'family-billing-v1');assert.ok(Date.parse(allowed!.expiresAt)<=Date.now()+31000);
-  assert.equal(await authorizeFamilyBilling(pool,parent,grantId,'family.finance.proof.submit'),null);assert.equal(await authorizeFamilyBilling(pool,outsider,grantId,'family.finance.read'),null);assert.deepEqual((await listFamilyBilling(pool,outsider)).scopes,[]);assert.equal((await listFamilyBilling(pool,parent)).scopes.length,1);
+  assert.equal(await authorizeFamilyBilling(pool,parent,grantId,'family.finance.activity.accept'),null);assert.equal(await authorizeFamilyBilling(pool,parent,grantId,'family.finance.proof.submit'),null);assert.equal(await authorizeFamilyBilling(pool,outsider,grantId,'family.finance.read'),null);assert.deepEqual((await listFamilyBilling(pool,outsider)).scopes,[]);assert.equal((await listFamilyBilling(pool,parent)).scopes.length,1);
   // Exercise the deployed restricted service role, not only the migration owner.
   // Existing host baseline permissions/policies are reproduced only in this CI DB.
   await pool.query('GRANT USAGE ON SCHEMA identity,organisation,access,audit TO peos_finance_test_runtime');
@@ -42,7 +42,8 @@ test('family billing requires explicit current school authority, never leaks oth
    assert.equal(await authorizeFamilyBilling(restricted,outsider,grantId,'family.finance.read'),null);
    await assert.rejects(revokeFamilyBilling(restricted,outsider,grantId),/BILLING_CONTACT_UNAVAILABLE/);
    await revokeFamilyBilling(restricted,parent,grantId);assert.deepEqual((await listFamilyBilling(restricted,parent)).scopes,[]);
-   grantId=(await grantFamilyBilling(restricted,principal,school,input)).id;
+   grantId=(await grantFamilyBilling(restricted,principal,school,{...input,actions:['family.finance.read','family.finance.activity.accept']})).id;
+   assert.equal((await authorizeFamilyBilling(restricted,parent,grantId,'family.finance.activity.accept'))?.learnerPersonId,child);
    assert.equal((await listFamilyBilling(restricted,parent)).scopes.length,1);
    assert.deepEqual((await runtime.query("SELECT has_table_privilege(current_user,'access.family_billing_grants','DELETE') AS deletion,(SELECT rolbypassrls FROM pg_roles WHERE rolname=current_user) AS bypass")).rows[0],{deletion:false,bypass:false});
    await assert.rejects(runtime.query('DELETE FROM access.family_billing_grants WHERE id=$1',[grantId]),/permission denied/);
@@ -51,7 +52,7 @@ test('family billing requires explicit current school authority, never leaks oth
    ["UPDATE access.family_billing_grants SET expires_at=now()-interval '1 second',granted_at=now()-interval '2 days' WHERE id=$1","UPDATE access.family_billing_grants SET expires_at=now()+interval '1 day' WHERE id=$1"],
    ["UPDATE organisation.memberships SET status='ENDED' WHERE organisation_id=$1 AND person_id='"+child+"'","UPDATE organisation.memberships SET status='ACTIVE' WHERE organisation_id=$1 AND person_id='"+child+"'"],
    ["UPDATE access.role_assignments SET status='ENDED' WHERE organisation_id=$1 AND person_id='"+principal+"'","UPDATE access.role_assignments SET status='ACTIVE' WHERE organisation_id=$1 AND person_id='"+principal+"'"]
-  ]){const key=sql.includes('family_billing_grants')?grantId:school;await pool.query(sql,[key]);assert.equal(await authorizeFamilyBilling(pool,parent,grantId,'family.finance.read'),null);assert.deepEqual((await listFamilyBilling(pool,parent)).scopes,[]);await pool.query(reset,[key]);}
+  ]){const key=sql.includes('family_billing_grants')?grantId:school;await pool.query(sql,[key]);assert.equal(await authorizeFamilyBilling(pool,parent,grantId,'family.finance.read'),null);assert.equal(await authorizeFamilyBilling(pool,parent,grantId,'family.finance.activity.accept'),null);assert.deepEqual((await listFamilyBilling(pool,parent)).scopes,[]);await pool.query(reset,[key]);}
   for(const [sql,reset,key] of [
    ["UPDATE identity.persons SET status='INACTIVE' WHERE id=$1","UPDATE identity.persons SET status='ACTIVE' WHERE id=$1",parent],
    ["UPDATE identity.persons SET status='INACTIVE' WHERE id=$1","UPDATE identity.persons SET status='ACTIVE' WHERE id=$1",child],
