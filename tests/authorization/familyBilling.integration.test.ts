@@ -1,6 +1,6 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import {randomUUID} from 'node:crypto';import {Pool} from 'pg';
 import {createFamilyInvitation,claimFamilyInvitation,reviewFamilyInvitation} from '../../domains/family/invitations';
-import {grantFamilyBilling,authorizeFamilyBilling,listFamilyBilling,listSchoolBillingContacts,revokeFamilyBilling} from '../../domains/family-billing/service';
+import {saveFamilyBillingSettings,grantFamilyBilling,authorizeFamilyBilling,listFamilyBilling,listSchoolBillingContacts,revokeFamilyBilling} from '../../domains/family-billing/service';
 import {withdrawFamilyConnection} from '../../domains/family/connections';
 test('family billing requires explicit current school authority, never leaks other families and fails after any scoped revocation',{skip:!process.env.CI||!process.env.DATABASE_URL},async()=>{
  const pool=new Pool({connectionString:process.env.DATABASE_URL}),school=randomUUID(),people=Array.from({length:5},()=>randomUUID());const [principal,admin,parent,outsider,child]=people;let grantId='';
@@ -44,10 +44,20 @@ test('family billing requires explicit current school authority, never leaks oth
    await revokeFamilyBilling(restricted,parent,grantId);assert.deepEqual((await listFamilyBilling(restricted,parent)).scopes,[]);
    grantId=(await grantFamilyBilling(restricted,principal,school,{...input,actions:['family.finance.read','family.finance.activity.accept']})).id;
    assert.equal((await authorizeFamilyBilling(restricted,parent,grantId,'family.finance.activity.accept'))?.learnerPersonId,child);
+   const originalGrant=grantId,settings={settings:{...input,actions:['family.finance.read','family.finance.plan.accept']},expectedGrantId:originalGrant};
+   const updated=await saveFamilyBillingSettings(restricted,principal,school,settings);grantId=updated.id;assert.notEqual(grantId,originalGrant);
+   assert.equal(await authorizeFamilyBilling(restricted,parent,originalGrant,'family.finance.read'),null);assert.equal((await authorizeFamilyBilling(restricted,parent,grantId,'family.finance.plan.accept'))?.learnerPersonId,child);
+   assert.equal((await saveFamilyBillingSettings(restricted,principal,school,settings)).id,grantId);
+   await assert.rejects(saveFamilyBillingSettings(restricted,principal,school,{...settings,settings:{...input,actions:['family.finance.read','family.finance.proof.submit']}}),/BILLING_SETTINGS_CHANGED/);
+   assert.equal((await runtime.query('SELECT status FROM access.family_billing_grants WHERE id=$1',[originalGrant])).rows[0].status,'REVOKED');
+   grantId=(await saveFamilyBillingSettings(restricted,principal,school,{expectedGrantId:grantId,settings:{...input,actions:['family.finance.read','family.finance.activity.accept']}})).id;
    assert.equal((await listFamilyBilling(restricted,parent)).scopes.length,1);
    assert.deepEqual((await runtime.query("SELECT has_table_privilege(current_user,'access.family_billing_grants','DELETE') AS deletion,(SELECT rolbypassrls FROM pg_roles WHERE rolname=current_user) AS bypass")).rows[0],{deletion:false,bypass:false});
    await assert.rejects(runtime.query('DELETE FROM access.family_billing_grants WHERE id=$1',[grantId]),/permission denied/);
   }finally{await runtime.query('RESET ROLE');runtime.release();}
+  const expectedGrantId=grantId;const raced=await Promise.allSettled([saveFamilyBillingSettings(pool,principal,school,{expectedGrantId,settings:{...input,actions:['family.finance.read'],expiresAt:new Date(Date.now()+2*86400000).toISOString()}}),saveFamilyBillingSettings(pool,principal,school,{expectedGrantId,settings:{...input,actions:['family.finance.read','family.finance.plan.accept'],expiresAt:new Date(Date.now()+3*86400000).toISOString()}})]);
+  assert.equal(raced.filter(r=>r.status==='fulfilled').length,1);grantId=(raced.find(r=>r.status==='fulfilled') as PromiseFulfilledResult<{id:string}>).value.id;
+  grantId=(await saveFamilyBillingSettings(pool,principal,school,{expectedGrantId:grantId,settings:{...input,actions:['family.finance.read','family.finance.activity.accept']}})).id;
   for(const [sql,reset] of [
    ["UPDATE access.family_billing_grants SET expires_at=now()-interval '1 second',granted_at=now()-interval '2 days' WHERE id=$1","UPDATE access.family_billing_grants SET expires_at=now()+interval '1 day' WHERE id=$1"],
    ["UPDATE organisation.memberships SET status='ENDED' WHERE organisation_id=$1 AND person_id='"+child+"'","UPDATE organisation.memberships SET status='ACTIVE' WHERE organisation_id=$1 AND person_id='"+child+"'"],

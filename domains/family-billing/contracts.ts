@@ -5,3 +5,4 @@ export const billingGrantInput=z.object({relationshipId:z.string().uuid(),action
 export const billingDecisionInput=z.object({action:billingAction}).strict();
 export const billingRevokeInput=z.object({acknowledgement:z.literal(true)}).strict();
 export const billingContractVersion='family-billing-v1' as const;
+export const billingSettingsInput=z.object({settings:billingGrantInput,expectedGrantId:z.string().uuid().nullable()}).strict();

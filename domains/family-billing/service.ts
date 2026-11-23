@@ -1,6 +1,6 @@
 import type {Pool,PoolClient} from 'pg';
 import {AdminError,transaction,assertSchoolPrincipal} from '../school-admin/service';
-import {billingGrantInput,billingAction,billingContractVersion} from './contracts';
+import {billingGrantInput,billingAction,billingContractVersion,billingSettingsInput} from './contracts';
 type Db=Pick<PoolClient,'query'>;
 async function audit(db:Db,actor:string,action:string,id:string,decision='ALLOW',reason='current_family_billing_scope'){
  await db.query('INSERT INTO audit.events(actor_person_id,action,resource_type,resource_id,decision,reason) VALUES($1,$2,\'FAMILY_BILLING\',$3,$4,$5)',[actor,action,id,decision,reason]);
@@ -56,3 +56,20 @@ export async function authorizeFamilyBilling(pool:Pool,person:string,grantId:str
  const row=rows.rows[0];if(!row){await audit(db,person,'family.billing.authorize',grantId,'DENY','family_billing_scope_unavailable');return null;}
  await audit(db,person,'family.billing.authorize',grantId);return {allowed:true as const,contractVersion:billingContractVersion,grantId:row.id,personId:person,schoolId:row.school_id,learnerPersonId:row.learner_person_id,action,expiresAt:new Date(Date.now()+30000).toISOString()};
 });}
+
+/** One user save; history is retained through an atomic grant replacement. */
+export async function saveFamilyBillingSettings(pool:Pool,actor:string,school:string,value:unknown){
+ const {settings:input,expectedGrantId}=billingSettingsInput.parse(value),expiry=Date.parse(input.expiresAt);
+ if(expiry<=Date.now()||expiry>Date.now()+400*86400000)throw new AdminError('BILLING_EXPIRY_INVALID',400);
+ return transaction(pool,async db=>{
+  await assertSchoolPrincipal(db,actor,school);
+  const contact=(await db.query(`SELECT f.adult_person_id,f.learner_person_id ${joins} WHERE f.id=$1 AND f.school_id=$2 AND ${eligible} FOR UPDATE OF f,i`,[input.relationshipId,school])).rows[0];
+  if(!contact||contact.adult_person_id===actor)throw new AdminError('BILLING_CONTACT_UNAVAILABLE',404);
+  const current=(await db.query("SELECT id,actions,expires_at,granted_by FROM access.family_billing_grants WHERE relationship_id=$1 AND status='ACTIVE' FOR UPDATE",[input.relationshipId])).rows[0];
+  if(current&&current.granted_by===actor&&JSON.stringify([...current.actions].sort())===JSON.stringify([...input.actions].sort())&&new Date(current.expires_at).toISOString()===new Date(input.expiresAt).toISOString())return {id:current.id,status:'ACTIVE',replayed:true};
+  if((current?.id??null)!==expectedGrantId)throw new AdminError('BILLING_SETTINGS_CHANGED',409);
+  if(current){await db.query("UPDATE access.family_billing_grants SET status='REVOKED',revoked_by=$2,revoked_at=clock_timestamp() WHERE id=$1",[current.id,actor]);await audit(db,actor,'family.billing.revoke',current.id,'ALLOW','settings_replaced');}
+  const row=(await db.query('INSERT INTO access.family_billing_grants(relationship_id,school_id,adult_person_id,learner_person_id,actions,granted_by,expires_at) VALUES($1,$2,$3,$4,$5::text[],$6,$7) RETURNING id',[input.relationshipId,school,contact.adult_person_id,contact.learner_person_id,input.actions,actor,input.expiresAt])).rows[0];
+  await audit(db,actor,'family.billing.settings.save',row.id);return {id:row.id,status:'ACTIVE',replayed:false};
+ });
+}
