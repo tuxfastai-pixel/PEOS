@@ -1,0 +1,27 @@
+# School notices authority
+
+
+## MSG-04 — general parent notice board, 24 November 2026
+
+User accepted the existing Finance private-message and school-branded sign-in walkthrough. That report does not establish a new general-board or external WhatsApp acceptance. WhatsApp testing is explicitly deferred by the user; its sender, transport and dispatch flags remain off.
+
+Prepared a separate school-notices-v1 contract: current confirmed school-family relationships, active school/adult/learner/membership and class membership; no billing grant required. Principal/administrator may publish school/class notices; teachers only their current assigned classes and their own authored notices. Finance-only roles gain no general-school broadcast authority. Directory/audience checks are bounded and purpose-audited. No new identity, relationship or role store/grant.
+
+SpaceCase owns immutable notice text, snapshot recipients deduplicated per parent, append-only private messages/read receipts/withdrawal and resolve/reopen events. Three guided steps, optional selected-parent subset, replies on/off and explicit review. The reviewed relationship set must still match current authority at publication; new recipients are not silently added after review. Idempotent publication and messages, safe held retry after unknown response, parent-specific threads, current revocation/class checks, future-read watermark rejection, numeric keyset message history, rate caps, and restricted runtime without overwrite/delete rights. Current pilot limits: at most 500 confirmed relationship rows per publication, 200 active classes per staff scope and 100 recent notices; oversized audiences fail closed and should be narrowed to a class. General/class notice delivery beyond these bounds requires paged audience review/dispatch, not silent truncation.
+
+Parent School inbox includes school notices plus existing Finance activity notices, with combined bell count. School notices are available from staff administration/teacher workspaces and Principal Finance header; exact parent links preserve safe sign-in return. Private replies can be resolved/reopened; a parent follow-up reopens them. Published text cannot be overwritten: withdraw and issue a correction. Withdrawal hides notices/blocks new replies while retaining history. Read receipts measure opening in the visible foreground, not agreement or understanding. General learner evaluations/AI sends remain in their reviewed communication workflow; no attachments, off-app push or WhatsApp dispatch added.
+
+Source prepared under SPACECASE_SCHOOL_NOTICES_ENABLED (default off). Isolated migration, companion contract release, full CI and signed-in desktop/phone/keyboard walkthrough pending. Production unchanged; no hosted notices/messages sent during development.
+
+Endpoints: GET /v1/school-notices/staff, /v1/school-notices/schools/:schoolId?classId=UUID and /v1/family/school-notices. All require an authenticated session. Thirty-second purpose-scoped responses are revalidated by SpaceCase before material reads/writes. No PEOS schema migration, contact mutation or billing grant activation.
+
+
+## Isolated release verified — 24 November 2026
+
+Final SpaceCase source 9283cb3497bc303e05d087155e216a48affb3357: CI run 45438133397/job 138601465111 passed 411 product tests and 23 service tests, migration/restricted-runtime/restore checks, type/lint and both builds. Final PEOS source c625e68894b87636dc1e748202e705044942c939: CI run 45438701679/job 138603473012 passed 74 tests and required checks. Both sources fast-forwarded into their protected Finance development branches. Class-specific audience projections contain only the selected class, including the regression case of a learner in several classes.
+
+Final isolated Preview deployments are READY: SpaceCase dpl_9m1ufv2975ssM8YG5BdhV54iATyG and PEOS dpl_46Gu4xV5HWSiAttMAu9j9dTKZNnw. Both stable Finance test aliases assigned and read back against these exact tested source SHAs and protected refs. Anonymous live checks return sign-in for staff/parent pages, preserve the exact parent-notice destination, and return 401/no notice data for private APIs.
+
+Guarded additive migration 20261124180000_school_notice_board.sql installed only in spacecase_finance_synthetic_20261112; checksum 9a068f1e08f6a54bcd9331abc2a0f4b8fa2dab25b9bc314541f15ed677ff228d read back. The new board had zero notices/messages/reads immediately after installation; no hosted parent notice was seeded or published by this build. Runtime cannot UPDATE notices or DELETE messages; notice coordination uses advisory locks with append-only history. SPACECASE_SCHOOL_NOTICES_ENABLED=true read back for the isolated Preview/protected branch only. No canonical contacts/roles/grants, financial records or production configuration were changed.
+
+MSG-04 is now PARTIAL / VERIFY: the general school/class/selected-parent board is enabled on isolated Preview alongside the previously accepted Finance messages and school sign-in branding. This is not production activation or completed live acceptance. Signed-in publication, parent bell/read/private reply, staff read status, withdrawal, current role/contact revocation and desktop/phone/keyboard walkthrough remain pending for the new board. Larger audience pagination, retention-policy rollout, attachments and off-app device push remain open. Actual WhatsApp testing/delivery is explicitly deferred by the user and remains off. Production unchanged.

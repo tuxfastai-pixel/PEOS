@@ -9,10 +9,27 @@ async function run() {
   const databaseUrl = process.env.DATABASE_URL?.trim();
   if (!databaseUrl) throw new Error("DATABASE_URL is required to run migrations");
 
+  const verifyOnly = process.argv.includes("--verify-only");
   const client = new Client({ connectionString: databaseUrl });
   await client.connect();
 
   try {
+    if (verifyOnly) {
+      const files = (await readdir(migrationsDirectory)).filter((file) => file.endsWith(".sql")).sort();
+      const rows = await client.query<{ migration_name: string; checksum: string }>(
+        "SELECT migration_name, checksum FROM audit.schema_migrations",
+      );
+      const recorded = new Map(rows.rows.map((row) => [row.migration_name, row.checksum]));
+      for (const file of files) {
+        const sql = await readFile(path.join(migrationsDirectory, file), "utf8");
+        const checksum = createHash("sha256").update(sql).digest("hex");
+        if (recorded.get(file) !== checksum) throw new Error(`Missing or mismatched migration: ${file}`);
+        recorded.delete(file);
+      }
+      if (recorded.size) throw new Error(`Unexpected migration records: ${[...recorded.keys()].join(", ")}`);
+      console.log(`Verified ${files.length} migration records without database changes`);
+      return;
+    }
     await client.query(`
       CREATE SCHEMA IF NOT EXISTS audit;
       CREATE TABLE IF NOT EXISTS audit.schema_migrations (

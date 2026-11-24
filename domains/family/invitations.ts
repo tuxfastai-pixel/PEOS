@@ -19,19 +19,28 @@ async function learner(db:PoolClient,school:string,person:string){
  if(!r.rows.length)throw new AdminError('LEARNER_UNAVAILABLE',404);
 }
 async function activePerson(db:PoolClient,person:string){if(!(await db.query("SELECT id FROM identity.persons WHERE id=$1 AND status='ACTIVE' FOR SHARE",[person])).rows.length)throw new AdminError('ACTIVE_PERSON_REQUIRED');}
-export async function createFamilyInvitation(pool:Pool,actor:string,school:string,value:unknown){const input=familyInvitationInput.parse(value);return transaction(pool,async db=>{
+export async function createFamilyInvitation(pool:Pool,actor:string,school:string,value:unknown){const input=familyInvitationInput.parse(value);const result=await transaction(pool,async db=>{
  await assertSchoolAdmin(db,actor,school);await learner(db,school,input.learnerPersonId);
  await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[JSON.stringify(['family-invite',school,input.learnerPersonId,input.email])]);
  await db.query("UPDATE organisation.family_invitations SET status='EXPIRED' WHERE school_id=$1 AND learner_person_id=$2 AND email=$3 AND status IN ('ISSUED','CLAIMED') AND expires_at<=clock_timestamp()",[school,input.learnerPersonId,input.email]);
- if((await db.query("SELECT id FROM organisation.family_invitations WHERE school_id=$1 AND learner_person_id=$2 AND email=$3 AND status IN ('ISSUED','CLAIMED')",[school,input.learnerPersonId,input.email])).rows.length)throw new AdminError('INVITATION_ALREADY_PENDING',409);
+ const existing=(await db.query(`SELECT i.id,i.status FROM organisation.family_invitations i WHERE i.school_id=$1 AND i.learner_person_id=$2 AND i.email=$3
+ AND (i.status IN ('ISSUED','CLAIMED') OR (i.status='CONFIRMED' AND EXISTS(SELECT 1 FROM identity.school_family_relationships f WHERE f.invitation_id=i.id AND f.status='ACTIVE')))
+ ORDER BY i.created_at DESC LIMIT 1`,[school,input.learnerPersonId,input.email])).rows[0];
+ if(existing){
+  await db.query(`INSERT INTO audit.events(actor_person_id,action,resource_type,resource_id,decision,reason,metadata)
+   VALUES($1,'school.family_invitation.duplicate','SCHOOL',$2,'DENY','existing_invitation_or_contact',jsonb_build_object('schoolId',$3::text))`,[actor,existing.id,school]);
+  return {duplicateCode:existing.status==='CONFIRMED'?'FAMILY_LINK_ALREADY_ACTIVE':'INVITATION_ALREADY_PENDING'};
+ }
  const token=randomBytes(32).toString('base64url');const r=await db.query(`INSERT INTO organisation.family_invitations(school_id,learner_person_id,email,relationship,token_hash,created_by)
  VALUES($1,$2,$3,$4,$5,$6) RETURNING id,expires_at AS "expiresAt"`,[school,input.learnerPersonId,input.email,input.relationship,hashBearerToken(token),actor]);
  await audit(db,actor,'school.family_invitation.create',school,r.rows[0].id);return {...r.rows[0],token,emailStatus:'NOT_SENT' as const};
-});}
+});if('duplicateCode' in result)throw new AdminError(result.duplicateCode!,409);return result;}
 export async function listFamilyInvitations(pool:Pool,actor:string,school:string,offset=0,view:'ALL'|'PENDING_REVIEW'|'AWAITING_PARENT'|'CONFIRMED'='ALL',learnerPersonId?:string){return transaction(pool,async db=>{
  await assertSchoolAdmin(db,actor,school);const r=await db.query(`SELECT id,learner_person_id AS "learnerPersonId",(SELECT admission_number FROM organisation.learner_registrations r WHERE r.school_id=organisation.family_invitations.school_id AND r.learner_person_id=organisation.family_invitations.learner_person_id) AS "admissionNumber",email,relationship,
  CASE WHEN status IN ('ISSUED','CLAIMED') AND expires_at<=clock_timestamp() THEN 'EXPIRED' ELSE status END AS status,
- expires_at AS "expiresAt",claimed_at AS "claimedAt",reviewed_at AS "reviewedAt" FROM organisation.family_invitations WHERE school_id=$1 AND ($4::uuid IS NULL OR learner_person_id=$4::uuid) AND ($3='ALL' OR($3='PENDING_REVIEW' AND status='CLAIMED' AND expires_at>clock_timestamp()) OR($3='AWAITING_PARENT' AND status='ISSUED' AND expires_at>clock_timestamp()) OR($3='CONFIRMED' AND status='CONFIRMED')) ORDER BY created_at DESC,id LIMIT 101 OFFSET $2`,[school,offset,view,learnerPersonId??null]);
+ expires_at AS "expiresAt",claimed_at AS "claimedAt",reviewed_at AS "reviewedAt",
+ (SELECT count(*)::int FROM audit.events e WHERE e.resource_id=organisation.family_invitations.id::text AND e.action='school.family_invitation.duplicate' AND e.decision='DENY') AS "duplicateAttempts"
+ FROM organisation.family_invitations WHERE school_id=$1 AND ($4::uuid IS NULL OR learner_person_id=$4::uuid) AND ($3='ALL' OR($3='PENDING_REVIEW' AND status='CLAIMED' AND expires_at>clock_timestamp()) OR($3='AWAITING_PARENT' AND status='ISSUED' AND expires_at>clock_timestamp()) OR($3='CONFIRMED' AND status='CONFIRMED')) ORDER BY created_at DESC,id LIMIT 101 OFFSET $2`,[school,offset,view,learnerPersonId??null]);
  await audit(db,actor,'school.family_invitation.list',school,school);return {invitations:r.rows.slice(0,100),nextOffset:r.rows.length>100?offset+100:null};
 });}
 export async function claimFamilyInvitation(pool:Pool,person:string,verifiedEmail:string,value:unknown){const {token}=familyClaimInput.parse(value);return transaction(pool,async db=>{

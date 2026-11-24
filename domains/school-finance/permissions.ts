@@ -8,7 +8,8 @@ export type FinanceAction =
   | "finance.reconciliation.approve"
   | "finance.policy.manage"
   | "finance.expenditure.approve"
-  | "finance.audit.read";
+  | "finance.audit.read"
+  | "finance.payments.verify";
 
 const permissions: Readonly<Record<FinanceAction, readonly SchoolFinanceRole[]>> = {
   "finance.summary.read": ["PRINCIPAL", "FINANCE_MANAGER"],
@@ -19,6 +20,7 @@ const permissions: Readonly<Record<FinanceAction, readonly SchoolFinanceRole[]>>
   "finance.policy.manage": ["PRINCIPAL"],
   "finance.expenditure.approve": ["PRINCIPAL"],
   "finance.audit.read": ["PRINCIPAL"],
+  "finance.payments.verify": ["PRINCIPAL", "FINANCE_MANAGER"],
 };
 
 /**
