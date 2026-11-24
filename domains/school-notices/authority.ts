@@ -40,5 +40,5 @@ export async function staffNoticeAudience(pool:Pool,person:string,school:string,
  const rows=(await pool.query(`SELECT DISTINCT ${columns} ${joins} WHERE f.school_id=$1 AND ${eligible} AND ($2::uuid IS NULL OR $2=ANY(${classes})) ORDER BY "relationshipId" LIMIT 501`,[school,classId??null])).rows;
  if(rows.length>500)throw new AdminError('NOTICE_AUDIENCE_LIMIT',409);
  await audit(pool,person,'school.notices.audience',school);
- return {contractVersion:'school-notices-v1' as const,personId:person,expiresAt:expiry(),schoolId:school,schoolName:scope.schoolName,schoolWide:scope.schoolWide,classId:classId??null,className:classId?scope.classes.find(c=>c.id===classId)!.name:null,recipients:rows};
+ return {contractVersion:'school-notices-v1' as const,personId:person,expiresAt:expiry(),schoolId:school,schoolName:scope.schoolName,schoolWide:scope.schoolWide,classId:classId??null,className:classId?scope.classes.find(c=>c.id===classId)!.name:null,recipients:rows.map(r=>({...r,classIds:classId?[classId]:r.classIds}))};
 }
